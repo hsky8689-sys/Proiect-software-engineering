@@ -9,4 +9,4 @@ Functionalitati:
 Stack:
 Back end - django
 Front end - React
-Databasa - PostgreSQL
+Databasa - PostgreSQL;
