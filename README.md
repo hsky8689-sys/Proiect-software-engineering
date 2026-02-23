@@ -55,17 +55,6 @@ Platformă web dedicată **dezvoltatorilor** pentru:
 
 ---
 
-## 📋 Plan Dezvoltare (4 Sprint-uri)
-
-| Sprint | Focus | Durată |
-|--------|-------|--------|
-| **Sprint 1** | Auth + Profile + Search | 1 săptămână |
-| **Sprint 2** | Proiecte CRUD + Join/Leave | 1 săptămână |
-| **Sprint 3** | Posts + Chat text | 1.5 săptămâni |
-| **Sprint 4** | Meetings WebRTC + Deploy | 1.5 săptămâni |
-
----
-
 ## 🚀 Cum să rulezi local
 
 ```bash
