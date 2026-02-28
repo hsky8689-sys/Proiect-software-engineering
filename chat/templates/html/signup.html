@@ -5,15 +5,16 @@
     <title>REGISTRATION PAGE</title>
 </head>
     <h1>bla bla bla share ideas participate in projects...</h1>
-<form>
+<form method="post">
+        {% csrf_token %}
         Username:
-        <input type="text" maxlength="50" name="user"></input><br>
+        <input type="text" maxlength="50" name="username"></input><br>
         Password:
-        <input type="password" maxlength="50" name="pass"></input><br>
+        <input type="password" maxlength="50" name="password"></input><br>
         Birthday:
-        <input type="date"></input><br>
+        <input type="date" name="birthday"></input><br>
         Email:
-        <input type="email" maxlength="45" name="mail"></input><br>
+        <input type="email" maxlength="45" name="email"></input><br>
         <button value="CREATE ACCOUNT" aria-setsize="10px"></button>
 </form>
 

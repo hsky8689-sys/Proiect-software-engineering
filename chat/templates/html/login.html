@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<head>
+    <meta charset="utf-8"/>
+    <title>REGISTRATION PAGE</title>
+</head>
+
+<body>
+    <form method="post">
+        {% csrf_token %}
+        <h1>Username/Email:<br></h1>
+        <input type="text" width="500px" height="40px" name="username"></input><br>
+        <h1>Password:</h1><br>
+        <input type="password" width="500px" height="40px" name="password"></input><br></input>
+        <input type="submit" width="300px" height="50px">LOG IN</input><br>
+        <h2>Don't have an account? Sign up <a href="{% url 'user_signup' %}">here</a> </h2>
+    </form>
+</body>
+
+</html>
