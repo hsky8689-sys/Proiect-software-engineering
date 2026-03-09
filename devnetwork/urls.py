@@ -23,7 +23,6 @@ from chat.views import show_all_messages
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path("all-messages/",show_all_messages,name="all"),
     path("chat/",include("chat.urls")),
     path("users/",include("users.urls")),
     path("login/", users.views.login_page, name="user_login"),

@@ -10,8 +10,8 @@ def redirect_to_login(request):
     return redirect('user_login')
 urlpatterns = [
     path("signup/",signup_page),
-    path("profile/",acces_profile),
+    path("profile/<str:username>/",acces_profile,name="profile-path"),
     path("logout/",auth_views.LogoutView.as_view(
-    template_name="html/logout.html",next_page="login.html")
+    template_name="html/templates/../chat/templates/html/logout.html",next_page="login.html")
     ,name="logout")
 ]

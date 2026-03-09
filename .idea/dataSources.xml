@@ -13,7 +13,7 @@
         </library>
       </libraries>
     </data-source>
-    <data-source source="LOCAL" name="devnetwork@localhost" uuid="5ea1e098-2a61-41d4-8741-6d71372f5c9e">
+    <data-source source="LOCAL" name="devnetwork@localhost" uuid="010c80ef-ecce-40eb-83fc-59f51a290b01">
       <driver-ref>postgresql</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>org.postgresql.Driver</jdbc-driver>

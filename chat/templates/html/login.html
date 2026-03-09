@@ -1,19 +1,22 @@
 <!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset="utf-8"/>
+    <meta charset="utf-8">
     <title>REGISTRATION PAGE</title>
+    {% load static %}
+    <link rel="stylesheet" type="text/css" href="../../static/css/style.css">
 </head>
-
 <body>
     <form method="post">
         {% csrf_token %}
-        <h1>Username/Email:<br></h1>
-        <input type="text" width="500px" height="40px" name="username"></input><br>
-        <h1>Password:</h1><br>
-        <input type="password" width="500px" height="40px" name="password"></input><br></input>
-        <input type="submit" width="300px" height="50px">LOG IN</input><br>
-        <h2>Don't have an account? Sign up <a href="{% url 'user_signup' %}">here</a> </h2>
+        <h1>Username:</h1>
+        <input type="text" name="username" style="width:500px;height:40px;"><br>
+
+        <h1>Password:</h1>
+        <input type="password" name="password" style="width:500px;height:40px;"><br>
+
+        <input class="registrations" type="submit" value="Sign in"><br>
+        <h2>Don't have an account? Sign up <a href="{% url 'user_signup' %}">here</a></h2>
     </form>
 </body>
-
 </html>
