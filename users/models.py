@@ -1,7 +1,15 @@
+import sys
+
+from devnetwork import settings
+
+sys.path.append('devnetwork')
+
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser,BaseUserManager,PermissionsMixin
 from datetime import datetime
 
+from django.db.models import Q
+from multipledispatch import dispatch
 class CustomUserManager(BaseUserManager):
     def create_user(self,username,email,password=None,**extra_fields):
         if not  username:
@@ -12,6 +20,7 @@ class CustomUserManager(BaseUserManager):
         user = self.model(username=username,email=email,**extra_fields)
         user.set_password(password)
         user.save(using=self.db)
+        self.create_default_user_sections(user)
         return user
     def create_superuser(self, username, email, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
@@ -19,6 +28,7 @@ class CustomUserManager(BaseUserManager):
         return self.create_user(username, email, password, **extra_fields)
     def get_by_natural_key(self, username):
         return self.get(**{self.model.USERNAME_FIELD:username})
+
 class User(AbstractBaseUser,PermissionsMixin):
     username = models.CharField(max_length=100, blank=False, unique=True)
     login_date = models.DateTimeField(default=datetime.now)
@@ -26,16 +36,14 @@ class User(AbstractBaseUser,PermissionsMixin):
     birthday = models.DateField(null=True,blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
-
     objects = CustomUserManager()
-
     USERNAME_FIELD = 'username'
-    REQUIRED_FIELDS = ['email']
+    REQUIRED_FIELDS = ['email','password']
     class Meta:
         db_table = 'users'
         #managed = False
 
-class UserProfileSection(models.Model):
+class UserProfileData:
     user = models.ForeignKey(User,on_delete=models.CASCADE)
     profile_picture = models.ImageField(
         upload_to='users/profiles/%Y/%m/%d/',
@@ -49,8 +57,68 @@ class UserProfileSection(models.Model):
         null=True,
         default='users/background_pictures/sbcf-default-backgrounds.png'
     )
+    biography = models.CharField(max_length=200,blank=False,default="Welcome to my profile!")
+    class Meta:
+        db_table = 'profile_datas'
+
+class CustomUserProfileSectionManager(BaseUserManager):
+    @dispatch(User,str,str,bool)
+    def create_user_profile_section(self,user:User,name:str,content:str,hidden:bool):
+        """
+        Creates a new profile section with no which will be added to an user's personal page
+        :param user: The specified user
+        :param name: The new section's name (Non-empty at least 100 characters)
+        :param content: The new section's content (Non-empty at least 100 characters)
+        :param hidden: States if the section will be or not hidden to foreign profile visitors
+        :return: None
+        """
+        new_section = (self.create(user=user,
+                               name=name,
+                               content=content,
+                               hidden=hidden
+                               ))
+        new_section.save()
+    def delete_user_profile_section(self,user:User,section_id):
+        """
+        Deletes a former profile section from an user's personal page
+        :param user:
+        :return:
+        """
+        self.filter(Q(id=section_id)|Q(user_id=user.id)).delete()
+    def update_user_profile_section(self,user,former_section_id)->bool:
+        """
+        Updates a user's profile section
+        :param user:
+        :return: true or false if the section was updated accordingly
+        """
+        if former_section_id <= 0:
+            return False
+
+        return True
+    def get_user_profile_sections(self,user,includehidden=False):
+        """
+        :param user:
+        :param includehidden:
+        :return:
+        """
+        return self.get(Q(hidden=includehidden))
+    def create_default_user_sections(self, user):
+        """
+        Creates the default user sections after the account gets created
+        :param user:
+        :return:None
+        """
+        from django.conf import settings
+        sections_data = [
+            UserProfileSection(user=user, name=key, content=value, hidden=False)
+            for key, value in settings.DEFAULT_SECTIONS.items()
+        ]
+        UserProfileSection.objects.bulk_create(sections_data)
+class UserProfileSection(models.Model):
+    user = models.ForeignKey(User,on_delete=models.CASCADE)
     name = models.CharField(max_length=100,blank=False)
     content = models.CharField(max_length=500,blank=False)
+    objects = CustomUserProfileSectionManager()
     hidden = models.BooleanField(default=False)
     class Meta:
         db_table = 'profile_sections'
