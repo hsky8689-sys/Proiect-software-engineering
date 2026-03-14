@@ -2,10 +2,11 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
-
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from projects.models import Project
-from .models import User, UserProfileSection, UserTechnicalSkillSection
-
+from .models import User, UserProfileSection, UserTechnicalSkillSection,UserTechnicalSkill
 
 # Create your views here.
 def signup_page(request):
@@ -36,12 +37,13 @@ def acces_profile(request,username):
     profile_stats = {
         "profile_sections":[],
         "teckstack_category":{},
-        "profile_projects":[]
+        "profile_projects":[],
+        "user_posts":[]
     }
     if request.user.username == username:
         profile_stats["profile_sections"] = UserProfileSection.objects.get_user_profile_sections(request.user,includehidden=True)
     else:
-        profile_stats["profile_sections"] = UserProfileSection.objects.get_user_profile_sections(request.user)
+        profile_stats["profile_sections"] = UserProfileSection.objects.get_user_profile_sections(user)
     profile_stats["techstack_category"] = UserTechnicalSkillSection.objects.get_user_techstack(user)
     profile_stats["profile_projects"] = Project.objects.get_user_projects(user)
     context = {
@@ -50,7 +52,9 @@ def acces_profile(request,username):
         "user":user,
         "profile_sections":profile_stats["profile_sections"],
         "techstack_category":profile_stats["techstack_category"],
-        "user_projects":profile_stats["profile_projects"]
+        "user_projects":profile_stats["profile_projects"],
+        "user_posts":profile_stats["user_posts"],
+        "is_owner":request.user.username == username
     }
     return render(request, "html/profile.html", context)
 def login_page(request):
@@ -70,3 +74,22 @@ def login_page(request):
         if request.user.is_authenticated:
             logout(request)
         return render(request, "html/login.html")
+@require_http_methods(["POST"])
+@csrf_exempt
+def api_add_skill(request):
+    name = request.POST.get('name')
+    section_id = request.POST.get('section_id')
+
+    success = UserTechnicalSkill.objects.add_user_skill(name=name,section_id=section_id)
+    return JsonResponse({'status':'success' if success else 'error',
+                         'message':'Skill was added' if success else 'Error!'
+    })
+@require_http_methods(["DELETE"])
+@csrf_exempt
+def api_delete_skill(request,skill_id):
+    try:
+        skill = UserTechnicalSkill.objects.get(id=skill_id)
+        success = UserTechnicalSkill.objects.remove_user_skill(skill)
+        return JsonResponse({'status': 'success'})
+    except UserTechnicalSkill.DoesNotExist:
+        return JsonResponse({'status':'error','message':'Skill not found'},status=404)

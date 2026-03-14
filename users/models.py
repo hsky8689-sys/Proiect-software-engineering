@@ -129,11 +129,22 @@ class UserProfileSection(models.Model):
         db_table = 'profile_sections'
 
 class UserTechnicalSkillsManager(BaseUserManager):
-    def add_user_skill(self,user):
-        pass
-    def remove_user_skill(self,user):
-        pass
+    def add_user_skill(self,name,section_id):
+        """
 
+        :param name:
+        :param section_id:
+        :return:
+        """
+        return self.create(name=name,section_id=section_id) is not None
+
+    def remove_user_skill(self,skill):
+        """
+
+        :param skill:
+        :return:
+        """
+        return self.get(id=skill.id).delete()
     def get_skills_from_section(self, section_id):
         """
 

@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import path, include
 from django.shortcuts import redirect
-from users.views import login_page, signup_page, acces_profile
+from users.views import login_page, signup_page, acces_profile, api_add_skill, api_delete_skill
 
 app_name = 'users'
 
@@ -13,5 +13,7 @@ urlpatterns = [
     path("profile/<str:username>/",acces_profile,name="profile-path"),
     path("logout/",auth_views.LogoutView.as_view(
     template_name="html/logout.html",next_page="login.html")
-    ,name="logout")
+    ,name="logout"),
+    path('api/add-skill/',api_add_skill,name='api_add_skill'),
+path('api/delete-skill/',api_delete_skill,name='api_delete_skill'),
 ]

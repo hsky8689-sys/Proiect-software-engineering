@@ -1,4 +1,5 @@
 {% load static %}
+<script src="{% static 'js/profile-edit.js' %}"></script>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -19,65 +20,56 @@
     </div>
     <div class="profile-data">
         <div class="cover-photo">
-            <img src="{% static 'css/img/sbcf-default-background.jpg' %}" alt="default-background">
+            <img src="{% static 'css/img/sbcf-default-background.jpg' %}" alt="Cover">
         </div>
-        <div class="main-data">
-            <div class="avatar-container">
-                <img src="{% static 'css/img/default-avatar.png' %}" alt="Profile picture">
-            </div>
-            <h1 style="width: 100px;">{{username}}</h1>
-            <input type="button" value="Add friend">
-            <input type="button" value="Message">
+        <div class="avatar-container">
+            <img src="{% static 'css/img/default-avatar.png' %}" alt="Profile">
+        </div>
+        <div class="near-avatar">
+                <h1>{{username}}</h1>
+                <button class="add-friend">Add friend</button>
+                <button class="message">Message</button>
         </div>
     </div>
-    <table style="row-gap: 40px; width: 97%;">
-        <td>
-            <table style="border-radius: 25px;background-color: yellow;">
-                {% for category,skills in techstack_category.items %}
-                    <tr>
-                        <td style="justify-content: center">
-                            <h2>{{ category.name }}</h2>
-                            <hr>
-                            <ul>
-                                {% for skill in skills %}
-                                    <li style="font-family: Helvetica, Arial, sans-serif; font-size: 30px">{{skill.name}}</li>
-                                {% endfor %}
-                            </ul>
-                        <td>
-                    </tr>
+    <div class="skills-tab">
+        {% for category,skills in techstack_category.items %}
+            <h2>{{ category.name }}</h2>
+            <hr>
+                {% for skill in skills %}
+                    <button class="skill">{{skill.name}}</button>
                 {% endfor %}
-            </table>
-        </td>
-        <td>
-            <table style="border-radius: 25px;background-color: yellowgreen;">
-                {% for section in profile_sections %}
-                <tr>
-                    <h1 class="section-name">{{section.name}}</h1>
-                    <pre class="section-content">{{section.content}}</pre>
-                    <hr>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td>User has no visible sections</td>
-                </tr>
-                {% endfor %}
-            </table>
-        </td>
-        <td>
-            <table style="background-color: yellow; height: 800px;width: 100%;border-radius: 25px;">
-                <tr><td>Community projects</td></tr>
-                <td>
-                    {% for proj in user_projects%}
-                        <td>
-                            <h2>{{ proj.name }}</h2>
-                        </td>
-                    {% empty %}
-                        <tr>
-                            <td>This user didn't participate in any community projects</td>
-                        </tr>
-                    {% endfor %}
-            </table>
-        </td>
-        </table>
+                {% if is_owner %}
+                    <input type="text" class="add-new-name" placeholder="Add new skill">
+                    <button class="add-btn" onclick="addSkill()">Add skill</button>
+                {% endif %}
+                <hr>
+        {% endfor %}
+        <hr>
+        {% if is_owner %}
+                <input type="text" class="add-new-name" placeholder="Add new skill category">
+                <button class="add-btn" onclick="addSkillSection()">Add section</button>
+        {% endif %}
+    </div>
+    <div class="profile-sections">
+        {% for section in profile_sections %}
+            <h1 class="section-name">{{section.name}}</h1>
+            <pre class="section-content">{{section.content}}</pre>
+            <hr>
+            {% empty %}
+            <tr>
+                <td>User has no visible sections</td>
+            </tr>
+            {% endfor %}
+    </div>
+    <div class="community-projects">
+         {% for proj in user_projects%}
+             <h1>{{ proj.name }}</h1>
+         {% empty %}
+                <h2>This user didn't participate in any community projects</h2>
+         {% endfor %}
+    </div>
+    <div class="user-posts">
+        
+    </div>
 </body>
 </html>
