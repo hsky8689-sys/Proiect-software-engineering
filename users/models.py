@@ -1,5 +1,6 @@
 from decouple import config
 from django.contrib.contenttypes.fields import GenericRelation
+from django.db.models import Q
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser,BaseUserManager,PermissionsMixin
 from datetime import datetime
@@ -9,24 +10,6 @@ class CustomUserManager(BaseUserManager):
         user = self.model(username=username, email=email, birthday=birthday)
         user.set_password(password)
         user.save(using=self._db)
-
-        # LOOP INDIVIDUAL - 100% SIGUR
-        """""""""""""""""""""""""""""""""""""""""""""""""""""
-        user = User.objects.get(id=user.id)  # Fresh object
-        for key, value in settings.DEFAULT_SECTIONS.items():
-            UserProfileSection.objects.get_or_create(
-                user_id=user.id,
-                name=key,
-                defaults={'content': value, 'hidden': False}
-            )
-
-        # Techstack la fel
-        for name in settings.DEFAULT_TECHSTACK_CATEGORIES:
-            UserTechnicalSkillSection.objects.get_or_create(
-                user=user,
-                name=name
-            )
-        """""""""""""""""""""""""""""""""""""""""""""""""""""
         UserProfileSection.objects.create_default_user_sections(user.id)
         UserTechnicalSkillSection.objects.create_user_default_techstack(user.id)
         return user
@@ -68,7 +51,7 @@ class UserProfileData(models.Model):
     biography = models.CharField(max_length=200,blank=False,default="Welcome to my profile!")
     class Meta:
         db_table = 'profile_datas'
-class CustomUserProfileSectionManager(BaseUserManager):
+class CustomUserProfileSectionManager(models.Manager):
     def create_user_profile_section(self,user:User,name:str,content:str,hidden:bool):
         """
         Creates a new profile section with no which will be added to an user's personal page
@@ -139,7 +122,7 @@ class UserProfileSection(models.Model):
     class Meta:
         db_table = 'profile_sections'
 
-class UserTechnicalSkillsManager(BaseUserManager):
+class UserTechnicalSkillsManager(models.Manager):
     def add_user_skill(self,name,section_id):
         """
 
@@ -164,7 +147,7 @@ class UserTechnicalSkillsManager(BaseUserManager):
         """
         return self.filter(section_id=section_id)
 
-class UserTechnicalSkillSectionManager(BaseUserManager):
+class UserTechnicalSkillSectionManager(models.Manager):
     def create_user_default_techstack(self,user_id):
         """
         Creates the default tech stack categories for any user profile after creating account
@@ -213,3 +196,52 @@ class UserExperienceSubsection(models.Model):
     user_section = models.ForeignKey(UserProfileSection,on_delete=models.CASCADE)
     start_date = models.DateField()
     end_date = models.DateField()
+
+class PostManager(models.Manager):
+    def find_user_posts(self,user_id):
+        return self.filter(user_id=user_id)
+class Post(models.Model):
+    description = models.CharField(max_length=500)
+    user = models.ForeignKey(User,on_delete=models.CASCADE)
+
+class RequestManager(models.Manager):
+    def send_friend_request(self,sender,receiver):
+        """
+
+        :param sender:
+        :param receiver:
+        :return:
+        """
+        pass
+    def accept_request(self,request):
+        pass
+    def deny_request(self,request):
+        pass
+    def send_project_join_request(self,sender,project):
+        pass
+    def send_project_invitation(self,sender,receiver):
+        pass
+class UserRequest(models.Model):
+    user = models.ForeignKey(User,on_delete=models.CASCADE)
+    timestamp = models.DateTimeField(default=datetime.now)
+    request_type = models.CharField(
+        max_length=20,
+        choices=[('friend', 'friend'), ('project', 'project')]
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=[('pending', 'pending'), ('declined', 'declined'), ('accepted', 'accepted')]
+    )
+    objects = RequestManager()
+    class Meta:
+        db_table = 'requestss'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(request_type__in=['friend','project']),
+                name='check_valid_request_type',
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=['pending', 'declined', 'accepted']),
+                name='check_valid_status',
+            )
+        ]

@@ -10,7 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from projects.models import Project
 from .models import User, UserProfileSection, UserTechnicalSkillSection,UserTechnicalSkill
-
+from .search import SearchManager, SearchFilterData
 # Create your views here.
 @login_required
 def search_page(request):
@@ -22,19 +22,18 @@ def search_api(request):
         try:
             data = json.loads(request.body)
             query = data.get('query','').lower()
-
-            people = User.objects.filter(
-                Q(username__icontains=query) |
-                Q(email__icontains=query)
-            ).values('id','username','email')[:10]
-            print(list(people))
+            data = SearchFilterData(user_id=request.user.id,query=query,search_type='ALL',sort_by_date=False,sort_by_relevance=False)
+            manager = SearchManager()
+            manager.execute_search(data)
+            results = manager.get_results_from_search()
             return JsonResponse({
                 'status':'success',
-                'results':{'people':list(people)}
+                'results':results
             })
         except json.JSONDecodeError:
             return JsonResponse({'status': 'error', 'message': 'Invalid JSON'}, status=400)
         except Exception as e:
+            print(str(e))
             return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 def signup_page(request):
     if request.method == 'POST':
@@ -114,17 +113,19 @@ def create_project(request):
         description = request.POST['description']
         user_id = request.user.id
         Project.objects.create_project(user_id,name, description)
-
+        return acces_profile(request,request.user.username)
 @require_http_methods(["POST"])
 @csrf_exempt
 def api_add_skill(request):
     name = request.POST.get('name')
     section_id = request.POST.get('section_id')
+    print(f"name={name}, section_id={section_id}")
 
-    success = UserTechnicalSkill.objects.add_user_skill(name=name,section_id=section_id)
-    return JsonResponse({'status':'success' if success else 'error',
-                         'message':'Skill was added' if success else 'Error!'
-    })
+    if not name or not section_id:
+        return JsonResponse({'status': 'error', 'message': 'Date lipsă'}, status=400)
+
+    success = UserTechnicalSkill.objects.add_user_skill(name=name, section_id=section_id)
+    return JsonResponse({'status': 'success' if success else 'error'})
 @require_http_methods(["DELETE"])
 @csrf_exempt
 def api_delete_skill(request,skill_id):

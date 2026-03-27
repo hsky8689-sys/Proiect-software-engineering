@@ -4,12 +4,11 @@ import django.db
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.decorators import login_required
 from django.db import models
-from django.db.models import Q
 
 from users.models import User
 
 # Create your models here.
-class ProjectManager(BaseUserManager):
+class ProjectManager(models.Manager):
     def makeNewOwner(self,project):
         """
 
@@ -42,7 +41,7 @@ class ProjectManager(BaseUserManager):
         :param project:
         :return:
         """
-        #return self.filter(id__in=UserProjectRole.objects.filter(user_id=user.id)).values_list('id',flat=True)
+        return self.filter(id__in=UserProjectRole.objects.filter(user_id=user.id)).values_list('id',flat=True)
 
     def get_all_users_in_project(self,project):
         """
@@ -108,7 +107,7 @@ class UserRoleValidator():
         #permission checking TODO
         return True
 
-class UserRoleManager(BaseUserManager):
+class UserRoleManager(models.Manager):
     def is_user_in_project(self, project, user):
         """
         Checks if an user is already in a project
@@ -116,7 +115,22 @@ class UserRoleManager(BaseUserManager):
         :param user:
         :return:
         """
-        #return UserProjectRole.objects.filter(Q(project_id=project.id) | Q(user_id=user.id)).count() == 1
+        return self.filter(project_id=project.id,user_id=user.id).count() == 1
+    def get_user_role_in_project(self, project, user):
+        """
+        Checks if an user is already in a project
+        :param project:
+        :param user:
+        :return:
+        """
+        try:
+            role_set = self.filter(project_id=project.id,
+                                   user_id=user.id).values('role').first()
+            return role_set['role'] if role_set else 'visitor'
+        except ValueError as v:
+            print(str(v))
+        except django.db.DatabaseError as e:
+            print(str(e))
     @login_required
     def give_role_to_user(self,project:int,role_assigner:int,user:int,role):
         """
@@ -152,4 +166,3 @@ class ProjectTaskParticipation(models.Model):
     task = models.ForeignKey(ProjectTask,on_delete=models.CASCADE,null=True,blank=True)
     class Meta:
         db_table = 'project_task_participations'
-

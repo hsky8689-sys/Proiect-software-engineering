@@ -27,6 +27,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path("chat/",include("chat.urls")),
     path("users/",include("users.urls")),
+    path("projects/",include("projects.urls")),
     path("login/", users.views.login_page, name="user_login"),
     path("signup/",users.views.signup_page,name="user_signup"),
     path("",users.views.login_page)

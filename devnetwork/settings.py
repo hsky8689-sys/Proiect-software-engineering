@@ -39,6 +39,8 @@ DEFAULT_TECHSTACK_CATEGORIES=['Frontend',
                               'Tools'
                                ]
 
+SEARCH_TYPE = ['ALL','USERS','PROJECTS','POSTS']
+
 DEFAULT_SECTIONS = {
     'About me': config('ABOUT_ME_DEFAULT'),
     'Skills': config('SKILLS_DEFAULT'),
