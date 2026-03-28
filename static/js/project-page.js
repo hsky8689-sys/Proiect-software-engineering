@@ -16,7 +16,7 @@ function loadPage(context){
     const role = context.role;
     alert(role + ' ' + JSON.stringify(context));
     // Exemplu utilizare:
-    document.querySelector('h1').textContent += ` (User: ${context.user_username}, Role: ${role})`;
+    //document.querySelector('h1').textContent += ` (User: ${context.user_username}, Role: ${role})`;
 }
 document.addEventListener('DOMContentLoaded', () => {
     if (window.pageContext) {

@@ -23,9 +23,9 @@ class ProjectManager(models.Manager):
         :return:
         """
         proj = self.create(owner_id=user,name=name,description=description)
-        default_roles = ProjectRole.objects.create_default_project_roles(proj)
-        owner_role = default_roles[0]
-        UserProjectRole.objects.give_role(proj.owner,proj,owner_role)
+        #default_roles = ProjectRole.objects.create_default_project_roles(proj)
+        #owner_role = default_roles[0]
+        #UserProjectRole.objects.give_role(proj.owner,proj,owner_role)
 
     def delete_project(self,project):
         """
@@ -51,12 +51,14 @@ class Project(models.Model):
     objects = ProjectManager()
     class Meta:
         db_table = 'projects'
+        managed = False
 
 class ProjectDomain(models.Model):
     project=models.ForeignKey(Project,on_delete=models.CASCADE)
     domain=models.CharField(max_length=100,blank=False,null=False,default='new domain')
     class Meta:
         db_table = 'project_domains'
+        managed = False
 
 class ProjectTask(models.Model):
     project = models.ForeignKey(Project,on_delete=models.CASCADE)
@@ -66,7 +68,7 @@ class ProjectTask(models.Model):
     end_date = models.DateField(default='3000-10-10')
     class Meta:
         db_table = 'projects_tasks'
-
+        managed = False
 class UserRoleValidator():
     def is_operation_permitted(self,project,role_assignator,user,new_role):
         """
@@ -134,7 +136,6 @@ class ProjectRole(models.Model):
     objects = ProjectRoleManager()
     class Meta:
         db_table = 'project_roles'
-        managed = False
 
 class UserProjectRoleManager(models.Manager):
     def make_new_owner(self,project):
@@ -154,13 +155,13 @@ class UserProjectRoleManager(models.Manager):
         :return:
         """
         try:
-            role_set = self.filter(project_id=project.id,
-                                   user_id=user.id).values('role').first()
-            return role_set['role'] if role_set else 'visitor'
-        except ValueError as v:
-            print(str(v))
-        except django.db.DatabaseError as e:
-            print(str(e))
+            role_obj = self.get_queryset().filter(
+                project=project,
+                user=user
+            ).select_related('role').first()
+            return role_obj.role.role if role_obj else 'visitor'
+        except UserProjectRole.DoesNotExist:
+            return 'visitor'
     @login_required
     def give_role_to_user(self,project:int,role_assigner:int,user:int,role):
         """
@@ -189,26 +190,25 @@ class UserProjectRoleManager(models.Manager):
         :param project:
         :return: A dictionary with the participants grouped by the roles in the given project
         """
-        try:
-            roles = self.filter(project=project).select_related('user')
-            users_by_role = defaultdict(list)
-            for role_obj in roles:
-                users_by_role[role_obj.role].append(role_obj.user)
-            return dict(users_by_role)
-        except Exception as e:
-            print(str(e))
-            return defaultdict(list)
+        users_by_role = defaultdict(list)
+        roles = self.get_queryset().filter(project=project).select_related('user', 'role')
+        for role_obj in roles:
+            role_name = role_obj.role.role  # role.role (FK!)
+            users_by_role[role_name].append(role_obj.user)
+        return dict(users_by_role)
+
 class UserProjectRole(models.Model):
-    user = models.ForeignKey(User,on_delete=models.CASCADE)
-    project = models.ForeignKey(Project,on_delete=models.CASCADE)
-    role = models.ForeignKey(ProjectRole,on_delete=models.CASCADE)
+    user = models.ForeignKey(User,on_delete=models.CASCADE,default=-1)
+    project = models.ForeignKey(Project,on_delete=models.CASCADE,default=-1)
+    role = models.ForeignKey(ProjectRole,on_delete=models.CASCADE,default=-1)
     objects = UserProjectRoleManager()
     class Meta:
         db_table = 'user_project_roles'
-        managed = False
+
 
 class ProjectTaskParticipation(models.Model):
     user = models.ForeignKey(User,on_delete=models.CASCADE,null=True,blank=True)
     task = models.ForeignKey(ProjectTask,on_delete=models.CASCADE,null=True,blank=True)
     class Meta:
         db_table = 'project_task_participations'
+        managed = False

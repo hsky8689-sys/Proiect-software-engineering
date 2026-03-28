@@ -19,26 +19,22 @@ def create_project(request):
                       })
 @login_required
 def open_project_page(request,name):
-    role_admin = UserProjectRole.objects
-    user = request.user
     project = Project.objects.filter(name=name).first()
-    if project is None:
-        return JsonResponse({
-            'status':'failed',
-            'code':404
-        })
-    staff = UserProjectRole.objects.get_all_users_in_project(project)
-    roles = staff.keys()
+    if not project:
+        return JsonResponse({'status': 'failed', 'code': 404})
+
+    staff = [] #UserProjectRole.objects.get_all_users_in_project(project)
+
+    user_role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
+
     context_data = {
-        'role': 'visitor',
-        'user_id': user.id,
-        'user_username': user.username,
+        'role': user_role,
+        'user_id': request.user.id,
+        'user_username': request.user.username,
         'project_name': project.name,
         'project_id': project.id,
-        'staff':staff,
-        'roles':roles
+        'staff': staff,
+        'roles': list(staff.keys()),
     }
-    if role_admin.is_user_in_project(project,user):
-        context_data['role'] = role_admin.get_user_role_in_project(project,user)
-    return render(request,'html/project_page.html',{'stats':context_data}
-    )
+
+    return render(request, 'html/project_page.html', {'stats': context_data})
