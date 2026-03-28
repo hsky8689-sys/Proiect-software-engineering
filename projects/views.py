@@ -1,10 +1,8 @@
-import json
-
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import render
-from django.views.decorators.http import require_http_methods
 
+import users.views
 from projects.models import Project, UserProjectRole
 
 
@@ -12,7 +10,7 @@ from projects.models import Project, UserProjectRole
 def create_project(request):
     if request.method == 'POST':
 
-        open_project_page(request)
+        users.views.acces_profile(request,request.user.username)
     else:
         JsonResponse({'status': 'error',
                       'code' : 404
@@ -22,11 +20,9 @@ def open_project_page(request,name):
     project = Project.objects.filter(name=name).first()
     if not project:
         return JsonResponse({'status': 'failed', 'code': 404})
-
-    staff = [] #UserProjectRole.objects.get_all_users_in_project(project)
-
+    staff = UserProjectRole.objects.get_all_users_in_project(project)
     user_role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
-
+    visitor_permissions = UserProjectRole.objects.get_role_permissions(user_role,project)
     context_data = {
         'role': user_role,
         'user_id': request.user.id,
@@ -35,6 +31,7 @@ def open_project_page(request,name):
         'project_id': project.id,
         'staff': staff,
         'roles': list(staff.keys()),
+        'visitor_permissions':visitor_permissions
     }
 
     return render(request, 'html/project_page.html', {'stats': context_data})

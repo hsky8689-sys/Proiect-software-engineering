@@ -23,9 +23,8 @@ class ProjectManager(models.Manager):
         :return:
         """
         proj = self.create(owner_id=user,name=name,description=description)
-        #default_roles = ProjectRole.objects.create_default_project_roles(proj)
-        #owner_role = default_roles[0]
-        #UserProjectRole.objects.give_role(proj.owner,proj,owner_role)
+        default_roles = ProjectRole.objects.create_default_project_roles(proj)
+        UserProjectRole.objects.give_role(proj.owner,proj,default_roles[0][0].id)
 
     def delete_project(self,project):
         """
@@ -104,11 +103,10 @@ class ProjectRoleManager(models.Manager):
             from devnetwork.settings import DEFAULT_PROJECT_ROLES
             created_roles = []
             for role_name,role_permissions in DEFAULT_PROJECT_ROLES.items():
-                role,created = self.get_or_create(
-                    project_id=project.id,
-                    role=role_name,
+                role = ProjectRole.objects.get_or_create(
+                    name=role_name,
                     defaults=role_permissions
-                )
+                    )
                 created_roles.append(role)
             return created_roles
         except django.db.Error as e:
@@ -122,7 +120,6 @@ class ProjectRoleManager(models.Manager):
             print(str(ex))
 
 class ProjectRole(models.Model):
-    project = models.ForeignKey(Project,on_delete=models.CASCADE)
     name = models.CharField(max_length=50,default='new role',null=False,blank=True)
     can_accept_invites = models.BooleanField(default=False)
     can_invite_others = models.BooleanField(default=False)
@@ -145,7 +142,7 @@ class UserProjectRoleManager(models.Manager):
         :return:
         """
     def give_role(self,user,project,role):
-        role = self.model(user_id=user,project_id=project,role_id=role)
+        role = self.model(user_id=user.id,project_id=project.id,role_id=role)
         role.save()
     def get_user_role_in_project(self, project, user):
         """
@@ -159,10 +156,47 @@ class UserProjectRoleManager(models.Manager):
                 project=project,
                 user=user
             ).select_related('role').first()
-            return role_obj.role.role if role_obj else 'visitor'
+            return role_obj.role.name if role_obj else 'visitor'
         except UserProjectRole.DoesNotExist:
             return 'visitor'
-    @login_required
+    def get_role_permissions(self,role_name,project):
+        try:
+            user_project_role = self.get_queryset().select_related('role').filter(
+                role__name=role_name,
+                project=project
+            ).first()
+
+            if not user_project_role:
+                return {
+                    'can_accept_invites': False,
+                    'can_invite_others': False,
+                    'can_kick_others': False,
+                    'can_change_roles': False,
+                    'can_start_calls': False,
+                    'can_add_tasks': False,
+                    'can_delete_tasks': False,
+                    'can_modify_tasks': False,
+                    'can_change_project_settings': False,
+                }
+            role = user_project_role.role
+            return {
+                'can_accept_invites': role.can_accept_invites,
+                'can_invite_others': role.can_invite_others,
+                'can_kick_others': role.can_kick_others,
+                'can_change_roles': role.can_change_roles,
+                'can_start_calls': role.can_start_calls,
+                'can_add_tasks': role.can_add_tasks,
+                'can_delete_tasks': role.can_delete_tasks,
+                'can_modify_tasks': role.can_modify_tasks,
+                'can_change_project_settings': role.can_change_project_settings,
+            }
+        except Exception as e:
+            print(str(e))
+            return {k: False for k in [
+                'can_accept_invites', 'can_invite_others', 'can_kick_others',
+                'can_change_roles', 'can_start_calls', 'can_add_tasks',
+                'can_delete_tasks', 'can_modify_tasks', 'can_change_project_settings'
+            ]}
     def give_role_to_user(self,project:int,role_assigner:int,user:int,role):
         """
 
@@ -183,7 +217,6 @@ class UserProjectRoleManager(models.Manager):
             return False
         except django.db.DatabaseError as e:
             return False
-    @login_required
     def get_all_users_in_project(self, project):
         """
         Returns the whole users that ever participated/are participating now in a project
@@ -193,8 +226,7 @@ class UserProjectRoleManager(models.Manager):
         users_by_role = defaultdict(list)
         roles = self.get_queryset().filter(project=project).select_related('user', 'role')
         for role_obj in roles:
-            role_name = role_obj.role.role  # role.role (FK!)
-            users_by_role[role_name].append(role_obj.user)
+            users_by_role[role_obj.role.name].append(role_obj.user)
         return dict(users_by_role)
 
 class UserProjectRole(models.Model):
