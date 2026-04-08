@@ -19,7 +19,7 @@ function getCookie(name){
         });
         const data = await response.json();
         if(data.status === 'success'){
-            window.location.href = '/users/create-new-project/';  // Tot redirect
+            window.location.href = '/users/create-new-project/';
         }
     } catch(error) {
         window.location.href = '/users/create-new-project/';
@@ -32,20 +32,20 @@ function getCookie(name){
         });
         const data = await response.json();
         if(data.status === 'success'){
-            window.location.href = "/login/";  // Tot redirect
+            window.location.href = "/login/";
         }
     } catch(error) {
         window.location.href = '/login/';
     }
     }
-        async function goToSearch(){
+    async function goToSearch(){
            try{
         const response = await fetch('/users/search/', {
             headers: {'X-Requested-With': 'XMLHttpRequest'}
         });
         const data = await response.json();
         if(data.status === 'success'){
-            window.location.href = '/users/search/';  // Tot redirect
+            window.location.href = '/users/search/';
         }
     } catch(error) {
         window.location.href = '/users/search/';

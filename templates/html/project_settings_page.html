@@ -1,6 +1,15 @@
 {% extends 'html/project_page_template.html' %}
 {% load static %}
-
 {% block content %}
-    
+    <div class="main-content">
+           <div class="settings-sections" style="display: grid; gap: 10px;">
+               <button onclick="loadProjectStatsSection()">Project stats</button>
+               <button onclick="loadTaskSection()">Task administration</button>
+               <button onclick="loadRolesSection()">Roles administration</button>
+               <button onclick="alert('n-ai facut asta')">Conversation rooms</button>    
+            </div>
+        <div class="project-related-posts">
+            <input type="checkbox">Open for requests</input>
+        </div>
+    </div>
 {% endblock %}

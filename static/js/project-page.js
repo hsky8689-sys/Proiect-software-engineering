@@ -1,3 +1,4 @@
+var djangoContext = window.djangoContext
 function getCookie(name){
             let cookieValue = null;
             if (document.cookie && document.cookie !== '') {
@@ -16,9 +17,6 @@ function loadPage(context){
     const role = context.role;
     alert(role + ' ' + JSON.stringify(context));
     const domains_div = document.getElementsByClassName("project-domains");
-
-    // Exemplu utilizare:
-    //document.querySelector('h1').textContent += ` (User: ${context.user_username}, Role: ${role})`;
 }
 async function goToMainProjectPage(project_name){
     const desiredUrl = `/projects/project-page/${project_name}/`;
@@ -54,6 +52,31 @@ async function goToProjectMembersPage(project_name){
         location.href = bailoutUrl;
     }
 }
+async function goToProjectSettings(project_name){
+    const desiredUrl = `/projects/project-page/${project_name}/settings/`;
+    const bailoutUrl = location.href;
+    try{
+        const response = await fetch(desiredUrl, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        if (response.ok) {
+            location.href = desiredUrl;
+        } else {
+            alert('Nu ai permisiunea sau pagina nu există.');
+        }
+    }
+    catch (err){
+        location.href=bailoutUrl;
+    }
+}
+async function copyLinkToClipboard(){
+    try{
+        await navigator.clipboard.writeText(window.location.href);
+        alert(`Link copied to clipboard`);
+    }catch(err){
+        console.error(`Fail to copy:`,err);
+    }
+}
 document.addEventListener('DOMContentLoaded', () => {
     if (window.pageContext) {
         loadPage(window.pageContext);
@@ -61,3 +84,19 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('Context lipsă!');
     }
 });
+const permission_denied = 'You do not have the permission to access this section';
+async function loadTaskSection(){
+
+}
+async function loadRolesSection(){
+    if(djangoContext.permissions.can_modify_tasks){
+        alert(permission_denied);
+    }
+}
+async function loadProjectStatsSection(){
+    try{
+        <input type="radio">Open for requests</input>
+    }catch (err){
+        alert(err);
+    }
+}

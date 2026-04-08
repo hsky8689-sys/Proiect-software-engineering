@@ -14,14 +14,14 @@
         <button onclick="goToSearch()">Search</button>
         <button onclick="goToProjectMembersPage('{{ stats.project_name }}')">See members</button>
         {% if stats.visitor_permissions.can_change_project_settings %}
-            <button>Settings</button>
+            <button onclick="goToProjectSettings('{{ stats.project_name }}')">Settings</button>
         {% endif %}
         {% if stats.visitor_permissions.can_invite_others %}
             <button>Invite others</button>
         {% endif %}
-        <button>Share page</button>
+        <button onclick="copyLinkToClipboard()">Share page</button>
         {% if stats.role != 'visitor' %}
-            <button>View task history</button>    
+            <button onclick="goToProjectTaskHistory()">View task history</button>    
         {% endif %}
     </div>
     {% block content %}
