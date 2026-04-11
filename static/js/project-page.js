@@ -1,4 +1,3 @@
-var djangoContext = window.djangoContext
 function getCookie(name){
             let cookieValue = null;
             if (document.cookie && document.cookie !== '') {
@@ -17,6 +16,10 @@ function loadPage(context){
     const role = context.role;
     alert(role + ' ' + JSON.stringify(context));
     const domains_div = document.getElementsByClassName("project-domains");
+    if(role === 'visitor'){
+        console.log('fetching requirements');
+        getProjectRequirements();
+    }
 }
 async function goToMainProjectPage(project_name){
     const desiredUrl = `/projects/project-page/${project_name}/`;
@@ -77,26 +80,42 @@ async function copyLinkToClipboard(){
         console.error(`Fail to copy:`,err);
     }
 }
+async function getProjectRequirements(){
+ try{
+        const desiredUrl = `/projects/`+window.djangoContext.project.name+`/api-get-project-requirements`;
+        const response = await fetch(desiredUrl,{
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        if(response.ok){
+            var section = document.getElementsByClassName("project-task-overview").item(0);
+            if(section==null){
+                return;
+            }
+            const data = await response.json();
+            const requirementsMap = data.requirements;
+            var text = '';
+            Object.entries(requirementsMap).forEach(([sectionName,reqList]) => {
+                text += `<h3>${sectionName}</h3><br>`;
+                if (Array.isArray(reqList)) {
+                    reqList.forEach(req => {
+                        text += `<p>${req.skill}</p><br>`;
+                    });
+                }
+                else{
+                    console.log(sectionName+' does not have a list associated with id');
+                }
+            });
+            alert(text);
+            section.innerHTML = text;
+        }
+    }catch(err){
+        console.error(`Fail to copy:`,err);
+    }
+}
 document.addEventListener('DOMContentLoaded', () => {
-    if (window.pageContext) {
-        loadPage(window.pageContext);
+    if (window.djangoContext && window.djangoContext.user) {
+        loadPage(window.djangoContext.user);
     } else {
-        console.error('Context lipsă!');
+        console.error('Contextul djangoContext lipsește din pagină!');
     }
 });
-const permission_denied = 'You do not have the permission to access this section';
-async function loadTaskSection(){
-
-}
-async function loadRolesSection(){
-    if(djangoContext.permissions.can_modify_tasks){
-        alert(permission_denied);
-    }
-}
-async function loadProjectStatsSection(){
-    try{
-        <input type="radio">Open for requests</input>
-    }catch (err){
-        alert(err);
-    }
-}

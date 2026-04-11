@@ -1,8 +1,8 @@
-from django.contrib import admin
 from django.contrib.auth import views as auth_views
-from django.urls import path, include
 from django.shortcuts import redirect
-from users.views import login_page, signup_page, acces_profile, api_add_skill, api_delete_skill, search_page, \
+from django.urls import path
+
+from users.views import signup_page, acces_profile, api_add_skill, api_delete_skill, search_page, \
     search_api, create_project
 
 app_name = 'users'

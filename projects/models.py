@@ -33,7 +33,6 @@ class ProjectManager(models.Manager):
         """
         Project.objects.get(id=project.id).delete()
         return Project.objects.filter(id=project.id).count() == 0
-
     def get_user_projects(self,user):
         """
         Returns all the projects that an specified user participated in
@@ -52,9 +51,15 @@ class Project(models.Model):
         managed = False
 
 class ProjectDomainManager(models.Manager):
-    def add_domain_to_project(self,project,domain_name):
-        item = self.model(domain=domain_name,project_id=project.id)
-        item.save()
+    def add_domains_to_project(self,project,domain_names):
+        """
+        :param project:
+        :param domain_names:
+        :return:
+        """
+        domains = [ProjectDomain(project=project,domain=name) for name in domain_names]
+        succes = self.bulk_create(domains)
+        return succes
     def get_project_domains(self,project):
         return self.filter(project_id=project.id).values('domain')
 
@@ -260,3 +265,102 @@ class ProjectTaskParticipation(models.Model):
     class Meta:
         db_table = 'project_task_participations'
         managed = False
+
+class ProjectRequiementSectionManager(models.Manager):
+    def add_requirement_sections(self,project,names):
+        """
+
+        :param project:
+        :param names:
+        :return:
+        """
+        try:
+          new_sections = [ProjectRequirementSection(project=project,name=skill_name) for skill_name in names]
+          created = self.bulk_create(new_sections,batch_size=100)
+          if len(created) != len(names):
+            raise ValueError("All sections couldn't be added")
+          return created
+        except django.db.DatabaseError as e:
+            print(str(e))
+    def remove_requirement_sections(self,project,names):
+        """
+
+        :param project:
+        :param names:
+        :return:
+        """
+        try:
+            former_sections = self.filter(project=project,name__in=names).delete()
+            return former_sections
+        except django.db.DatabaseError as e:
+            print(str(e))
+    def change_requirement_sections_titles(self,project,old_names,new_names):
+        """
+
+        :param project:
+        :param old_names:
+        :param new_names:
+        :return:
+        """
+        try:
+            former_sections = self.select_for_update(project=project,name__in=old_names)
+            for section in former_sections:
+                pass
+            return former_sections
+        except django.db.DatabaseError as e:
+            print(str(e))
+class ProjectRequirementSection(models.Model):
+    project = models.ForeignKey(Project,on_delete=models.CASCADE)
+    name = models.CharField(max_length=50,null=False,blank=False,default='Choose a new skill section(Frontend/Backend/Database etc..)')
+    objects = ProjectRequiementSectionManager()
+    class Meta:
+        db_table = 'project_requirements_sections'
+class ProjectSkillRequirementManager(models.Manager):
+    def add_skill_requirements(self,section,names):
+        try:
+            new_requirements = [ProjectSkillRequirement(section=section, name=skill_name) for skill_name in names]
+            created = self.bulk_create(new_requirements, batch_size=100)
+            if len(created) != len(names):
+                raise ValueError("All sections couldn't be added")
+            return created
+        except django.db.DatabaseError as e:
+                print(str(e))
+    def remove_skill_requirements(self,section,names):
+        """
+
+        :param project:
+        :param names:
+        :return:
+        """
+        try:
+            reqs = self.select_for_update(nowait=True,section=section,name__in=names)
+            former_requirements = reqs.delete()
+            return former_requirements
+        except django.db.DatabaseError as e:
+            print(str(e))
+    def get_requirements_grouped_by_sections(self,project):
+        """
+
+        :param project:
+        :return:
+        """
+        try:
+            result = {}
+            sections = ProjectRequirementSection.objects.filter(project=project)
+            requirements = ProjectSkillRequirement.objects.filter(section__in=sections).select_related('section')
+            for sec in sections:
+                result[sec.name] = []
+            for req in requirements:
+                result[req.section.name].append({
+                'id':req.id,
+                'skill':req.name
+                })
+            return result
+        except django.db.DatabaseError as e:
+            print(str(e))
+class ProjectSkillRequirement(models.Model):
+    section = models.ForeignKey(ProjectRequirementSection,on_delete=models.CASCADE)
+    name = models.CharField(max_length=50,null=False,blank=False,default='Choose a new required skill (Java/Aws/ChatGPT ...)')
+    objects = ProjectSkillRequirementManager()
+    class Meta:
+        db_table = 'project_skill_requirements'

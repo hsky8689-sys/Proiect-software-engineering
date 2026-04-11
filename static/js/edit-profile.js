@@ -38,6 +38,15 @@ function getCookie(name){
         window.location.href = '/login/';
     }
     }
+    async function goToInbox(user){
+        try{
+            const response = await fetch('/users/search/', {
+            headers: {'X-Requested-With': 'XMLHttpRequest'}
+        });
+        }catch (err){
+            alert(err);
+        }
+    }
     async function goToSearch(){
            try{
         const response = await fetch('/users/search/', {

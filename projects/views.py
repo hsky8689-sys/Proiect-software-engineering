@@ -1,11 +1,15 @@
+import json
+
+import django.db
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
-from django.shortcuts import get_object_or_404
+from django.views.decorators.http import require_http_methods
 
 import users.views
-from projects.models import Project, UserProjectRole, ProjectDomain, ProjectRole, UserProjectRoleManager
+from projects.models import Project, UserProjectRole, ProjectDomain,ProjectSkillRequirement,ProjectRequirementSection
 
 
 @login_required
@@ -48,15 +52,52 @@ def open_project_members_page(request,name):
 
 @login_required
 @csrf_exempt
-def open_project_settings(request,name):
-    project = get_object_or_404(Project,name=name)
-    project_role = UserProjectRole.objects.get_user_role_in_project(project=project,user=request.user)
-    permissions = UserProjectRole.objects.get_role_permissions(role_name=project_role,project=project)
-    if permissions['can_change_project_settings']:
-        return render(request,'html/project_settings_page.html',{'user':request.user,'permisions':permissions})
-    return JsonResponse({'status': 'error',
-                         'code': 404
-                         })
+def open_project_settings(request, name):
+    project = get_object_or_404(Project, name=name)
+    user_role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
+
+    context_data = {
+        'project_name': project.name,
+        'project_id': project.id,
+        'role': user_role,
+        'user_username': request.user.username,
+    }
+    return render(request, 'html/project_settings_page.html', {'stats': context_data})
 @login_required
 def send_project_join_request(request,project):
     pass
+@require_http_methods(["GET"])
+@csrf_exempt
+def api_get_project_domains(request,name):
+    try:
+        project = get_object_or_404(Project,name=name)
+        domains = ProjectDomain.objects.filter(project_id=project.id)
+        return JsonResponse({'status':'success','domains':list(domains.values())})
+    except django.db.DatabaseError:
+        return JsonResponse({'status': 'error', 'code': 500})
+@require_http_methods(["POST"])
+@csrf_exempt
+def api_add_project_domains(request,project):
+    try:
+        if request.method == 'POST':
+            data = json.loads(request.body)
+            domains = data.get('domains',[])
+            succes = ProjectDomain.objects.add_domains_to_project(project,domains)
+            return JsonResponse({'status':'succes' if len(succes) == len(domains) else 'error',
+                             'code':200 if len(succes) == len(domains) else 404
+            })
+    except Exception as e:
+        print(str(e))
+    except django.db.DatabaseError:
+        return JsonResponse({'status': 'error', 'code': 404})
+@require_http_methods(["GET"])
+@csrf_exempt
+def api_get_project_requirements(request,name):
+    try:
+        project = get_object_or_404(Project,name=name)
+        succes = ProjectSkillRequirement.objects.get_requirements_grouped_by_sections(project)
+        return JsonResponse({'status':'succes','requirements':succes})
+    except Exception as e:
+        print(str(e))
+    except django.db.DatabaseError:
+        return JsonResponse({'status': 'error', 'code': 404})
