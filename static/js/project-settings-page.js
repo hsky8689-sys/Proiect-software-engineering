@@ -20,7 +20,7 @@ async function loadProjectStatsSection(){
                 <label htmlFor="project-title">Project title</label><input id="project-title" name="project-title" type="text"/><br>
                 <label htmlFor="project-description">Project description</label><input id="project-desctiption" name="project-description" type="text"/><br>
                 <label for="is-private">Is project private(can be accessed via invite only and is hidden to the search engine)</label><input id="is-private" name="privacy" type="checkbox"/><br>
-                <h1>Techstack requirements</h1>`;
+                <h1>Project domains</h1>`;
                 try{  const apiUrl = '/projects/settings/'+djangoContext.project.name+'/api-project-domains';
                   const domain_tags =
                     await fetch(apiUrl, {headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -34,15 +34,14 @@ async function loadProjectStatsSection(){
                     });
                 }
                 else{
-                    content += `Could not load or find the project requirements`;
+                    content += `Could not load or find the project domains`;
                 }
             }catch (err){
                 content += err.message;
                 }
-            content += `<div class="new-domains">`;
+                content += `<div class="new-domains">`;
             content += `<input type="text" id="domain-input" placeholder="Add new domain for the project"/>
-                        <br><button onclick="addDomainToLocalStorage('idc',true)">Add domain to project</button>`
-                        +`<h1>Project tags(domains)</h1>`;
+                        <br><button onclick="addDomainToLocalStorage('idc',true)">Add domain to project</button>`;
             content+=`<div id="pending-domains">
                             <p>No domains queued to be added</p>
                       </div><br>
@@ -51,28 +50,84 @@ async function loadProjectStatsSection(){
                       </div>
                       <button id="save-domains" onclick="addDomainsToDb()" style="display: none;">Save new domains</button>`;
             content +=  `</div>`;
-            try{  const apiUrl = '/projects/settings/'+djangoContext.project.name+'/api-project-domains';
-                  const domain_tags =
-                    await fetch(apiUrl, {headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                  });
-              if (domain_tags.ok){
-                const data = await domain_tags.json();
-                const tags = data.domains;
-                tags.forEach(tag=>{
-                    content += `<p>${tag.domain}</p> <button type="button" onclick="queueForRemoval('${tag.domain}')">Delete domain</button><br>`;
+            content += `<h1>Project techstack requirements</h1>`;
+            try{
+                const desiredUrl = `/projects/settings/${window.djangoContext.project.name}/api-get-project-requirements`;
+                const response = await fetch(desiredUrl,
+                {headers: { 'X-Requested-With': 'XMLHttpRequest'}
                 });
-              }
-              else{
-                content += `Could not load the project domain tags`;
-              }
+                if(response.ok){
+                    const data = await response.json();
+                    const requirementsMap = data.requirements;
+                    Object.entries(requirementsMap).forEach(([sectionName,reqList]) => {
+                    content += `<h3>${sectionName}</h3><button onclick="addSectionToLocalStorage('${sectionName}',false)">Delete section</button>`;
+                        if (Array.isArray(reqList)) {
+                            reqList.forEach(req => {
+                            content += `
+        <p style="display:inline-block;">${req.skill}</p> 
+        <button type="button" onclick="addRequirementToLocalStorage(['${sectionName}', '${req.skill}'], false)">
+            Delete
+        </button><br>`;
+                            });
+                            content += `<input type="text" id="${sectionName}-domain-input" placeholder="Add new requirement for ${sectionName}"/>
+                            <br><button onclick="addRequirementToLocalStorage('${sectionName}',true)">Add requirement to ${sectionName}</button>`;
+                        }
+                else{
+                    console.log(sectionName+' does not have a list associated with id');
+                }
+            });
+                }else{
+                    alert(`Server error ${response.status}`);
+                }
+                content+=`<div id="pending-requirements">
+                            <p>No requirements queued to be added</p>
+                      </div><br>
+                      <div id="pending-removed-requirements">
+                          <p>No requirements queued to be removed</p>
+                      </div>
+                      <button id="save-requirements" onclick="addRequirementsToDb()" style="display: none;">Save new requirements</button>`;
+                content += `<input type="text" id="new-section-name"/>`;
+                content += `<button onclick="addSectionToLocalStorage('${sectionName}',true)">Add new section</button>`;
             }catch (err){
-                content += err.message;
+                alert(err);
             }
-            content += `<input type="text" placeholder="Add new domain to project"/><br><button>Add domains to project</button>`;
-            area.innerHTML=content;
+            area.innerHTML = content;
     } catch (err) {
         alert(err);
     }
+}
+
+function renderPendingRequirements(){
+   const container = document.getElementById("pending-requirements");
+    const removed = document.getElementById("pending-removed-requirements");
+    const saveBtn = document.getElementById("save-requirements");
+
+    if (!container || !removed) return;
+
+    let addedQueue = JSON.parse(localStorage.getItem('newRequirements') || '[]');
+    if (addedQueue.length > 0) {
+        container.innerHTML = addedQueue.map((req, index) => `
+            <div class="pending-tag" style="background: #e3f2fd; display: inline-block; padding: 5px; margin: 2px; border-radius:4px;">
+                <strong>${req[0]}:</strong> ${req[1]} 
+                <button onclick="removeRequirementFromLocalStorage(${index}, true)">x</button>
+            </div>
+        `).join('');
+    } else {
+        container.innerHTML = '<p>No requirements queued to be added</p>';
+    }
+
+    let removedQueue = JSON.parse(localStorage.getItem('removedRequirements') || '[]');
+    if (removedQueue.length > 0) {
+        removed.innerHTML = removedQueue.map((name, index) => `
+            <div class="pending-tag" style="background: #ffebee; display: inline-block; padding: 5px; margin: 2px; border-radius:4px;">
+                ${name} <button onclick="removeRequirementFromLocalStorage(${index}, false)">x</button>
+            </div>
+        `).join('');
+    } else {
+        removed.innerHTML = `<p>No requirements queued to be removed</p>`;
+    }
+
+    saveBtn.style.display = (addedQueue.length > 0 || removedQueue.length > 0) ? 'block' : 'none';
 }
 function renderPendingDomains() {
     const container = document.getElementById('pending-domains');
@@ -109,8 +164,62 @@ function removeDomainFromLocalStorage(index,rmfromadd) {
     const listName = (rmfromadd) ? 'newDomains' : 'removedDomains';
     let draft = JSON.parse(localStorage.getItem(listName) || '[]');
     draft.splice(index, 1);
-    localStorage.setItem('newDomains', JSON.stringify(draft));
+    localStorage.setItem(listName, JSON.stringify(draft));
     renderPendingDomains();
+}
+function addSectionToLocalStorage(section_name,queueforadd){
+    if(queueforadd){
+        let draft = JSON.parse(localStorage.getItem('newSections') || '[]');
+        const name = document.getElementById("new-section-name").value.trim();
+        if(draft.includes(name)){
+            draft.push(name);
+            localStorage.setItem('newSections',draft);
+        }
+    }
+    else{
+        let draft = JSON.parse(localStorage.getItem('removedSections') || '[]');
+        if(!draft.includes(section_name)){
+            draft.push(section_name);
+            localStorage.setItem('removedSections',JSON.stringify(draft));
+            /*hide the input to add different skills or delete them from that section*/
+        }
+    }
+}
+async function addSectionsToDb(){
+    const newSections = JSON.parse(localStorage.getItem('newSections') || '[]');
+    const removedSections = JSON.parse(localStorage.getItem('removedSections') || '[]');
+    if(newSections.length>0){
+        try{
+            const desiredUrl = `projects/settings/${window.djangoContext.project.name}/api-add-requirement-sections`;
+            const response = await fetch(desiredUrl,{
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({ 'newSections': newSections })
+            });
+            if(response.ok){localStorage.removeItem('newSections');}
+        }catch (err){
+            alert(err);
+        }
+    }
+    if(removedSections.length>0){
+        try{
+            const desiredUrl = `projects/settings/${window.djangoContext.project.name}/api-remove-requirement-sections`;
+            const response = await fetch(desiredUrl,{
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({ 'removedSections': removedSections })
+            });
+            if(response.ok){localStorage.removeItem('removedSections');}
+        }catch (err){
+            alert(err);
+        }
+    }
 }
 function addDomainToLocalStorage(domain_name,queueforadd){
     if(queueforadd){
@@ -133,23 +242,71 @@ function addDomainToLocalStorage(domain_name,queueforadd){
     }
     renderPendingDomains();
 }
-function addRequirementToLocalStorage(domain_name){
-    var domainInput = document.getElementById('domain-input');
-    var text = domainInput.value.trim();
+function addRequirementToLocalStorage(requested_name,queryforadd){
+    if(queryforadd){
+        var domainInput = document.getElementById(requested_name+'-domain-input');
+        var text = domainInput.value.trim();
 
-    let draft = JSON.parse(localStorage.getItem('newDomains') || '[]');
-    if(!draft.includes(text)){
-        draft.push(text);
-        localStorage.setItem('newDomains',JSON.stringify(draft));
-    }
+        let draft = JSON.parse(localStorage.getItem('newRequirements') || '[]');
+        if(!draft.includes(text)){
+            let newReq = [requested_name,text];
+            draft.push(newReq);
+            localStorage.setItem('newRequirements',JSON.stringify(draft));
+        }
     domainInput.value='';
-    renderPendingDomains();
+    }
+    else{
+        let draft = JSON.parse(localStorage.getItem('removedRequirements') || '[]');
+        if(!draft.includes(requested_name)){
+            draft.push(requested_name);
+            localStorage.setItem('removedRequirements',JSON.stringify(draft));
+        }
+    }
+    renderPendingRequirements();
+}
+async function addRequirementsToDb(){
+    const newRequirements = JSON.parse(localStorage.getItem('newRequirements') || '[]');
+    const removedRequirements = JSON.parse(localStorage.getItem('removedRequirements') || '[]');
+    if(newRequirements.length > 0){
+        try{
+            const desiredUrl = `/projects/settings/${window.djangoContext.project.name}/api-add-requirements`;
+             const response = await fetch(desiredUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({ 'newRequirements': newRequirements })
+            });
+            if(response.ok){localStorage.removeItem('newRequirements');}
+        }
+        catch (err){
+            alert(err);
+        }
+    }
+    if(removedRequirements.length > 0){
+        try{
+            const desiredUrl = `/projects/settings/${window.djangoContext.project.name}/api-remove-requirements`;
+             const response = await fetch(desiredUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({ 'removedRequirements': removedRequirements })
+            });
+            if(response.ok){localStorage.removeItem('removedRequirements');}
+        }
+        catch (err){
+            alert(err);
+        }
+    }
+    alert("Changes saved successfully!");
+    loadProjectStatsSection();
 }
 async function addDomainsToDb(){
     const newDomains = JSON.parse(localStorage.getItem('newDomains') || '[]');
     const removedDomains = JSON.parse(localStorage.getItem('removedDomains') || '[]');
-    const projectName = window.djangoContext.project.name;
-
     try {
         if (newDomains.length > 0) {
             const desiredUrl = `/projects/settings/${window.djangoContext.project.name}/api-add-domains`;
@@ -176,7 +333,6 @@ async function addDomainsToDb(){
             });
             if (remRes.ok) localStorage.removeItem('removedDomains');
         }
-
         alert("Changes saved successfully!");
         loadProjectStatsSection();
     } catch (err) {
@@ -184,12 +340,10 @@ async function addDomainsToDb(){
         alert("An error occurred while saving changes.");
     }
 }
-function queueForRemoval(domainName) {
-    let removed = JSON.parse(localStorage.getItem('removedDomains') || '[]');
-    if (!removed.includes(domainName)) {
-        removed.push(domainName);
-        localStorage.setItem('removedDomains', JSON.stringify(removed));
-        alert(removed);
-    }
-    renderPendingDomains();
+function removeRequirementFromLocalStorage(index, rmfromadd) {
+    const listName = rmfromadd ? 'newRequirements' : 'removedRequirements';
+    let draft = JSON.parse(localStorage.getItem(listName) || '[]');
+    draft.splice(index, 1);
+    localStorage.setItem(listName, JSON.stringify(draft));
+    renderPendingRequirements();
 }

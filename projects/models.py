@@ -339,12 +339,12 @@ class ProjectSkillRequirementManager(models.Manager):
     def remove_skill_requirements(self,section,names):
         """
 
-        :param project:
+        :param section:
         :param names:
         :return:
         """
         try:
-            reqs = self.select_for_update(nowait=True,section=section,name__in=names)
+            reqs = self.filter(section=section,name__in=names).select_for_update()
             former_requirements = reqs.delete()
             return former_requirements
         except django.db.DatabaseError as e:

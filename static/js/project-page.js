@@ -106,7 +106,6 @@ async function getProjectRequirements(){
                     console.log(sectionName+' does not have a list associated with id');
                 }
             });
-            alert(text);
             section.innerHTML = text;
         }
     }catch(err){
