@@ -86,11 +86,12 @@ async function loadProjectStatsSection(){
                           <p>No requirements queued to be removed</p>
                       </div>
                       <button id="save-requirements" onclick="addRequirementsToDb()" style="display: none;">Save new requirements</button>`;
-                content += `<input type="text" id="new-section-name"/>`;
-                content += `<button onclick="addSectionToLocalStorage('${sectionName}',true)">Add new section</button>`;
             }catch (err){
                 alert(err);
             }
+            content += `<input type="text" id="new-section-name"/>`;
+            content += `<button onclick="addSectionToLocalStorage('',true)">Add new section</button>`;
+            content += `<button onclick="addSectionsToDb()">Save section changes</button>`
             area.innerHTML = content;
     } catch (err) {
         alert(err);
@@ -171,9 +172,9 @@ function addSectionToLocalStorage(section_name,queueforadd){
     if(queueforadd){
         let draft = JSON.parse(localStorage.getItem('newSections') || '[]');
         const name = document.getElementById("new-section-name").value.trim();
-        if(draft.includes(name)){
+        if(!draft.includes(name)){
             draft.push(name);
-            localStorage.setItem('newSections',draft);
+            localStorage.setItem('newSections',JSON.stringify(draft));
         }
     }
     else{
@@ -181,7 +182,7 @@ function addSectionToLocalStorage(section_name,queueforadd){
         if(!draft.includes(section_name)){
             draft.push(section_name);
             localStorage.setItem('removedSections',JSON.stringify(draft));
-            /*hide the input to add different skills or delete them from that section*/
+            /*hide the input to add different skills or delete them from that section TODO*/
         }
     }
 }
@@ -190,7 +191,7 @@ async function addSectionsToDb(){
     const removedSections = JSON.parse(localStorage.getItem('removedSections') || '[]');
     if(newSections.length>0){
         try{
-            const desiredUrl = `projects/settings/${window.djangoContext.project.name}/api-add-requirement-sections`;
+            const desiredUrl = `/projects/settings/${window.djangoContext.project.name}/api-add-requirement-sections`;
             const response = await fetch(desiredUrl,{
                 method: 'POST',
                 headers: {
@@ -203,10 +204,11 @@ async function addSectionsToDb(){
         }catch (err){
             alert(err);
         }
+        loadProjectStatsSection();
     }
     if(removedSections.length>0){
         try{
-            const desiredUrl = `projects/settings/${window.djangoContext.project.name}/api-remove-requirement-sections`;
+            const desiredUrl = `/projects/settings/${window.djangoContext.project.name}/api-remove-requirement-sections`;
             const response = await fetch(desiredUrl,{
                 method: 'POST',
                 headers: {

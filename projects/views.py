@@ -184,25 +184,13 @@ def api_remove_project_requirements(request,name):
 @require_http_methods(["POST"])
 @csrf_exempt
 def api_remove_project_sections(request,name):
-    """"
     try:
         project = get_object_or_404(Project, name=name)
         role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
         if UserProjectRole.objects.get_role_permissions(role, project)['can_change_project_settings']:
             data = json.loads(request.body)
-            requirements = data.get('removedRequirements',[])
-            manager = ProjectSkillRequirement.objects
-            section_manager = ProjectRequirementSection.objects
-            batches = {}
-            for req in requirements:
-                if batches.get(req[0]):
-                    batches[req[0]].append(req[1])
-                else:
-                    batches[req[0]] = [req[1]]
-            print(batches)
-            for key in batches.keys():
-                section = section_manager.get(project=project,name=key)
-                manager.remove_skill_requirements(section,batches[key])
+            requirements = data.get('removedSections',[])
+            ProjectRequirementSection.objects.remove_requirement_sections(project,requirements)
             return JsonResponse({'status':'succes'})
         else:
             return JsonResponse({'status': 'Unauthorized access', 'code': 403})
@@ -210,30 +198,16 @@ def api_remove_project_sections(request,name):
         print(str(e))
     except django.db.DatabaseError:
         return JsonResponse({'status': 'error', 'code': 404})
-    """
-    pass
 @require_http_methods(["POST"])
 @csrf_exempt
 def api_add_project_sections(request,name):
-    """"
     try:
         project = get_object_or_404(Project, name=name)
         role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
         if UserProjectRole.objects.get_role_permissions(role, project)['can_change_project_settings']:
             data = json.loads(request.body)
-            requirements = data.get('removedRequirements',[])
-            manager = ProjectSkillRequirement.objects
-            section_manager = ProjectRequirementSection.objects
-            batches = {}
-            for req in requirements:
-                if batches.get(req[0]):
-                    batches[req[0]].append(req[1])
-                else:
-                    batches[req[0]] = [req[1]]
-            print(batches)
-            for key in batches.keys():
-                section = section_manager.get(project=project,name=key)
-                manager.remove_skill_requirements(section,batches[key])
+            requirements = data.get('newSections',[])
+            ProjectRequirementSection.objects.add_requirement_sections(project,requirements)
             return JsonResponse({'status':'succes'})
         else:
             return JsonResponse({'status': 'Unauthorized access', 'code': 403})
@@ -241,5 +215,3 @@ def api_add_project_sections(request,name):
         print(str(e))
     except django.db.DatabaseError:
         return JsonResponse({'status': 'error', 'code': 404})
-    """
-    pass
