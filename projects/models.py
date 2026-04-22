@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import datetime
 
 import django.db
 from django.db import models
@@ -7,7 +8,7 @@ from users.models import User
 
 
 class ProjectManager(models.Manager):
-    def makeNewOwner(self,project):
+    def makeNewOwner(self, project):
         """
 
         :param project:
@@ -15,17 +16,18 @@ class ProjectManager(models.Manager):
         """
         if User.objects.get(project.owner_id) is not None:
             raise ValueError("The owner didnt delete his account")
-    def create_project(self,user,name,description):
+
+    def create_project(self, user, name, description):
         """
         Creates a project and automatically sets the given user as owner
         :param user: The future project creator and owner
         :return:
         """
-        proj = self.create(owner_id=user,name=name,description=description)
+        proj = self.create(owner_id=user, name=name, description=description)
         default_roles = ProjectRole.objects.create_default_project_roles(proj)
-        UserProjectRole.objects.give_role(proj.owner,proj,default_roles[0][0].id)
+        UserProjectRole.objects.give_role(proj.owner, proj, default_roles[0][0].id)
 
-    def delete_project(self,project):
+    def delete_project(self, project):
         """
         Deletes a project from the database
         :param project:
@@ -33,7 +35,8 @@ class ProjectManager(models.Manager):
         """
         Project.objects.get(id=project.id).delete()
         return Project.objects.filter(id=project.id).count() == 0
-    def get_user_projects(self,user):
+
+    def get_user_projects(self, user):
         """
         Returns all the projects that an specified user participated in
         :param project:
@@ -41,26 +44,30 @@ class ProjectManager(models.Manager):
         """
         #return self.filter(id__in=UserProjectRole.objects.filter(user_id=user.id)).values_list('id',flat=True)
 
+
 class Project(models.Model):
-    owner=models.ForeignKey(User,on_delete=models.CASCADE)
-    name=models.CharField(max_length=100,blank=False,null=False,default='New project')
-    description=models.CharField(max_length=5000,blank=False,null=False,default='Project description')
+    owner = models.ForeignKey(User, on_delete=models.CASCADE)
+    name = models.CharField(max_length=100, blank=False, null=False, default='New project')
+    description = models.CharField(max_length=5000, blank=False, null=False, default='Project description')
     objects = ProjectManager()
+
     class Meta:
         db_table = 'projects'
         managed = False
 
+
 class ProjectDomainManager(models.Manager):
-    def add_domains_to_project(self,project,domain_names):
+    def add_domains_to_project(self, project, domain_names):
         """
         :param project:
         :param domain_names:
         :return:
         """
-        domains = [ProjectDomain(project=project,domain=name) for name in domain_names]
+        domains = [ProjectDomain(project=project, domain=name) for name in domain_names]
         succes = self.bulk_create(domains)
         return succes
-    def remove_domains_from_project(self,project,domain_names):
+
+    def remove_domains_from_project(self, project, domain_names):
         """
 
         :param project:
@@ -68,41 +75,77 @@ class ProjectDomainManager(models.Manager):
         :return:
         """
         try:
-            domains = self.filter(project=project,domain__in=domain_names).delete()
+            domains = self.filter(project=project, domain__in=domain_names).delete()
             return domains
         except django.db.DatabaseError as e:
             print(str(e))
-    def get_project_domains(self,project):
+
+    def get_project_domains(self, project):
         return self.filter(project_id=project.id).values('domain')
 
 
 class ProjectDomain(models.Model):
-    project=models.ForeignKey(Project,on_delete=models.CASCADE)
-    domain=models.CharField(max_length=100,blank=False,null=False,default='new domain')
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    domain = models.CharField(max_length=100, blank=False, null=False, default='new domain')
     objects = ProjectDomainManager()
+
     class Meta:
         db_table = 'project_domains'
 
+
 class ProjectTaskManager(models.Manager):
-    def add_task_to_project(self):
-        pass
+    def get_project_tasks(self, project):
+        try:
+            taskuri = self.select_related('project').filter(project=project)
+            return taskuri
+        except django.db.DatabaseError as e:
+            print(str(e))
+            return []
+
+    def add_task_to_project(self, project, name, description, start_date, end_date):
+        try:
+            _start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+            _end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+            if len(self.filter(project=project, name=name)) > 0:
+                return
+            if _start_date > _end_date:
+                return
+            if len(description) > 300:
+                return
+            return self.create(project_id=project.id,
+                               name=name,
+                               description=description,
+                               start_date=start_date,
+                               end_date=end_date,
+                               finished=False
+                               )
+        except django.db.DatabaseError as e:
+            print(str(e))
+            return []
+
     def remove_task_from_project(self):
         pass
 
 
 class ProjectTask(models.Model):
-    project = models.ForeignKey(Project,on_delete=models.CASCADE)
-    name = models.CharField(max_length=100,default='New task',blank=True)
-    description = models.CharField(max_length=300,default='Describe the task..',blank=True)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    name = models.CharField(max_length=100, default='New task', blank=True)
+    description = models.CharField(max_length=300, default='Describe the task..', blank=True)
     start_date = models.DateField(default='1000-10-10')
     end_date = models.DateField(default='3000-10-10')
     finished = models.BooleanField(default=False)
     objects = ProjectTaskManager()
+
     class Meta:
         db_table = 'projects_tasks'
-        managed = False
+        ordering = ['end_date']
+        indexes = [
+            models.Index(fields=['end_date'], name='end_date_idx'),
+        ]
+
+
 class UserRoleValidator():
-    def is_operation_permitted(self,project,role_assignator,user,new_role):
+    def is_operation_permitted(self, project, role_assignator, user, new_role):
         """
 
         :param role_assignator:
@@ -130,21 +173,23 @@ class UserRoleValidator():
         #permission checking TODO
         return True
 
+
 class ProjectRoleManager(models.Manager):
-    def create_default_project_roles(self,project):
+    def create_default_project_roles(self, project):
         try:
             from devnetwork.settings import DEFAULT_PROJECT_ROLES
             created_roles = []
-            for role_name,role_permissions in DEFAULT_PROJECT_ROLES.items():
+            for role_name, role_permissions in DEFAULT_PROJECT_ROLES.items():
                 role = ProjectRole.objects.get_or_create(
                     name=role_name,
                     defaults=role_permissions
-                    )
+                )
                 created_roles.append(role)
             return created_roles
         except django.db.Error as e:
             print(str(e))
-    def modify_project_role(self,project,form):
+
+    def modify_project_role(self, project, form):
         try:
             print('todo')
         except django.db.Error as e:
@@ -152,8 +197,9 @@ class ProjectRoleManager(models.Manager):
         except Exception as ex:
             print(str(ex))
 
+
 class ProjectRole(models.Model):
-    name = models.CharField(max_length=50,default='new role',null=False,blank=True)
+    name = models.CharField(max_length=50, default='new role', null=False, blank=True)
     can_accept_invites = models.BooleanField(default=False)
     can_invite_others = models.BooleanField(default=False)
     can_kick_others = models.BooleanField(default=False)
@@ -164,19 +210,23 @@ class ProjectRole(models.Model):
     can_modify_tasks = models.BooleanField(default=False)
     can_change_project_settings = models.BooleanField(default=False)
     objects = ProjectRoleManager()
+
     class Meta:
         db_table = 'project_roles'
 
+
 class UserProjectRoleManager(models.Manager):
-    def make_new_owner(self,project):
+    def make_new_owner(self, project):
         """
 
         :param project:
         :return:
         """
-    def give_role(self,user,project,role):
-        role = self.model(user_id=user.id,project_id=project.id,role_id=role)
+
+    def give_role(self, user, project, role):
+        role = self.model(user_id=user.id, project_id=project.id, role_id=role)
         role.save()
+
     def get_user_role_in_project(self, project, user):
         """
         Gets an user's role in a project if it exists,else labels them as visitors
@@ -192,7 +242,8 @@ class UserProjectRoleManager(models.Manager):
             return role_obj.role.name if role_obj else 'visitor'
         except UserProjectRole.DoesNotExist:
             return 'visitor'
-    def get_role_permissions(self,role_name,project):
+
+    def get_role_permissions(self, role_name, project):
         try:
             user_project_role = self.get_queryset().select_related('role').filter(
                 role__name=role_name,
@@ -230,7 +281,8 @@ class UserProjectRoleManager(models.Manager):
                 'can_change_roles', 'can_start_calls', 'can_add_tasks',
                 'can_delete_tasks', 'can_modify_tasks', 'can_change_project_settings'
             ]}
-    def give_role_to_user(self,project:int,role_assigner:int,user:int,role):
+
+    def give_role_to_user(self, project: int, role_assigner: int, user: int, role):
         """
 
         :param project:
@@ -240,16 +292,17 @@ class UserProjectRoleManager(models.Manager):
         :return:
         """
         try:
-            if not UserRoleValidator.is_operation_permitted(project,role_assigner,user,role):
+            if not UserRoleValidator.is_operation_permitted(project, role_assigner, user, role):
                 return False
-            role = self.get(project_id=project,user_id=user)
+            role = self.get(project_id=project, user_id=user)
             if role is None:
-                return self.create(project_id=project,user_id=user,role=role)
+                return self.create(project_id=project, user_id=user, role=role)
             role.update(role=role)
         except ValueError:
             return False
         except django.db.DatabaseError as e:
             return False
+
     def get_all_users_in_project(self, project):
         """
         Returns the whole users that ever participated/are participating now in a project
@@ -262,23 +315,46 @@ class UserProjectRoleManager(models.Manager):
             users_by_role[role_obj.role.name].append(role_obj.user)
         return dict(users_by_role)
 
+
 class UserProjectRole(models.Model):
-    user = models.ForeignKey(User,on_delete=models.CASCADE,default=-1)
-    project = models.ForeignKey(Project,on_delete=models.CASCADE,default=-1)
-    role = models.ForeignKey(ProjectRole,on_delete=models.CASCADE,default=-1)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, default=-1)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, default=-1)
+    role = models.ForeignKey(ProjectRole, on_delete=models.CASCADE, default=-1)
     objects = UserProjectRoleManager()
+
     class Meta:
         db_table = 'user_project_roles'
 
+
+class ProjectTaskParticipationManager(models.Manager):
+    def add_task_participations(self, task, users):
+        try:
+            participations = [ProjectTaskParticipation(user=user, task=task) for user in users]
+            self.bulk_create(participations)
+        except django.db.DatabaseError:
+            return
+
+    def remove_task_participations(self, task, users):
+        try:
+            participations = [self.filter(task=task, user=user) for user in users]
+            for p in participations:
+                p.delete()
+        except django.db.DatabaseError:
+            return
+
+
 class ProjectTaskParticipation(models.Model):
-    user = models.ForeignKey(User,on_delete=models.CASCADE,null=True,blank=True)
-    task = models.ForeignKey(ProjectTask,on_delete=models.CASCADE,null=True,blank=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    task = models.ForeignKey(ProjectTask, on_delete=models.CASCADE, null=True, blank=True)
+    objects = ProjectTaskParticipationManager()
+
     class Meta:
         db_table = 'project_task_participations'
         managed = False
 
+
 class ProjectRequiementSectionManager(models.Manager):
-    def add_requirement_sections(self,project,names):
+    def add_requirement_sections(self, project, names):
         """
 
         :param project:
@@ -286,14 +362,15 @@ class ProjectRequiementSectionManager(models.Manager):
         :return:
         """
         try:
-          new_sections = [ProjectRequirementSection(project=project,name=skill_name) for skill_name in names]
-          created = self.bulk_create(new_sections,batch_size=100)
-          if len(created) != len(names):
-            raise ValueError("All sections couldn't be added")
-          return created
+            new_sections = [ProjectRequirementSection(project=project, name=skill_name) for skill_name in names]
+            created = self.bulk_create(new_sections, batch_size=100)
+            if len(created) != len(names):
+                raise ValueError("All sections couldn't be added")
+            return created
         except django.db.DatabaseError as e:
             print(str(e))
-    def remove_requirement_sections(self,project,names):
+
+    def remove_requirement_sections(self, project, names):
         """
 
         :param project:
@@ -301,11 +378,12 @@ class ProjectRequiementSectionManager(models.Manager):
         :return:
         """
         try:
-            former_sections = self.filter(project=project,name__in=names).delete()
+            former_sections = self.filter(project=project, name__in=names).delete()
             return former_sections
         except django.db.DatabaseError as e:
             print(str(e))
-    def change_requirement_sections_titles(self,project,old_names,new_names):
+
+    def change_requirement_sections_titles(self, project, old_names, new_names):
         """
 
         :param project:
@@ -314,20 +392,26 @@ class ProjectRequiementSectionManager(models.Manager):
         :return:
         """
         try:
-            former_sections = self.select_for_update(project=project,name__in=old_names)
+            former_sections = self.select_for_update(project=project, name__in=old_names)
             for section in former_sections:
                 pass
             return former_sections
         except django.db.DatabaseError as e:
             print(str(e))
+
+
 class ProjectRequirementSection(models.Model):
-    project = models.ForeignKey(Project,on_delete=models.CASCADE)
-    name = models.CharField(max_length=50,null=False,blank=False,default='Choose a new skill section(Frontend/Backend/Database etc..)')
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    name = models.CharField(max_length=50, null=False, blank=False,
+                            default='Choose a new skill section(Frontend/Backend/Database etc..)')
     objects = ProjectRequiementSectionManager()
+
     class Meta:
         db_table = 'project_requirements_sections'
+
+
 class ProjectSkillRequirementManager(models.Manager):
-    def add_skill_requirements(self,section,names):
+    def add_skill_requirements(self, section, names):
         try:
             new_requirements = [ProjectSkillRequirement(section=section, name=skill_name) for skill_name in names]
             created = self.bulk_create(new_requirements, batch_size=100)
@@ -335,8 +419,9 @@ class ProjectSkillRequirementManager(models.Manager):
                 raise ValueError("All sections couldn't be added")
             return created
         except django.db.DatabaseError as e:
-                print(str(e))
-    def remove_skill_requirements(self,section,names):
+            print(str(e))
+
+    def remove_skill_requirements(self, section, names):
         """
 
         :param section:
@@ -344,12 +429,13 @@ class ProjectSkillRequirementManager(models.Manager):
         :return:
         """
         try:
-            reqs = self.filter(section=section,name__in=names).select_for_update()
+            reqs = self.filter(section=section, name__in=names).select_for_update()
             former_requirements = reqs.delete()
             return former_requirements
         except django.db.DatabaseError as e:
             print(str(e))
-    def get_requirements_grouped_by_sections(self,project):
+
+    def get_requirements_grouped_by_sections(self, project):
         """
 
         :param project:
@@ -363,15 +449,19 @@ class ProjectSkillRequirementManager(models.Manager):
                 result[sec.name] = []
             for req in requirements:
                 result[req.section.name].append({
-                'id':req.id,
-                'skill':req.name
+                    'id': req.id,
+                    'skill': req.name
                 })
             return result
         except django.db.DatabaseError as e:
             print(str(e))
+
+
 class ProjectSkillRequirement(models.Model):
-    section = models.ForeignKey(ProjectRequirementSection,on_delete=models.CASCADE)
-    name = models.CharField(max_length=50,null=False,blank=False,default='Choose a new required skill (Java/Aws/ChatGPT ...)')
+    section = models.ForeignKey(ProjectRequirementSection, on_delete=models.CASCADE)
+    name = models.CharField(max_length=50, null=False, blank=False,
+                            default='Choose a new required skill (Java/Aws/ChatGPT ...)')
     objects = ProjectSkillRequirementManager()
+
     class Meta:
         db_table = 'project_skill_requirements'

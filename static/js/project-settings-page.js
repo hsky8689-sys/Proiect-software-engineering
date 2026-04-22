@@ -1,7 +1,4 @@
 const permission_denied = 'You do not have the permission to access this section';
-async function loadTaskSection(){
-
-}
 async function loadRolesSection(){
     try{
         if(!djangoContext.permissions.can_modify_tasks){
@@ -97,7 +94,84 @@ async function loadProjectStatsSection(){
         alert(err);
     }
 }
-
+async function loadTaskAdministrationSection(){
+    var area = document.getElementsByClassName('project-related-posts').item(0);
+    area.innerHTML = '';
+    let newHtml = '';
+    try{
+        const desiredUrl = `/projects/settings/${djangoContext.project.name}/api-get-project-tasks`;
+        const response = await fetch(desiredUrl,
+            {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                    });
+        if(response.ok){
+            const data = await response.json();
+            const tasks = data.tasks;
+            if(tasks != null && tasks.length > 0){
+                tasks.forEach(task=>{
+                        newHtml += `<h2>${task.name}</h2><br>
+                                    <h2>${task.description}</h2><br>
+                                    <h2>${task.start_date}</h2><br>
+                                    <h2>${task.end_date}</h2>
+                                    <button onclick="queueTaskForDeletion(${task.id})">Delete task</button>
+                                    <br>`;
+                });
+            }
+            else{
+                newHtml += `<p>No tasks added to this project...</p><br>`;
+            }
+            newHtml += `<form id="new-task" method="POST" onsubmit="addTask()">
+                                <label for="title">Task title</label><br>
+                                <input type="text" id="title" placeholder="Enter a title for the new task"/><br>
+                                <label for="description">Task description</label><br>
+                                <textarea id="description" placeholder="Enter a description for the new task"></textarea><br>
+                                <label for="start-date"></label>
+                                <input type="date" id="start-date"/>
+                                <label for="end-date"></label><br>
+                                <input type="date" id="end-date"/><br>
+                                <button>Add task</button>
+                        </form>`;
+        }
+        area.innerHTML = newHtml;
+    }catch (error){
+        alert(error);
+    }
+}
+async function addTask(){
+    event.preventDefault();
+     const form = document.getElementById("new-task");
+     const formData = new FormData(form);
+     const data = {
+        title: document.getElementById('title').value,
+        description: document.getElementById('description').value,
+        start_date: document.getElementById('start-date').value,
+        end_date: document.getElementById('end-date').value,
+     };
+     try{
+        const desiredUrl = `/projects/settings/${djangoContext.project.name}/api-add-task`;
+        const response = await fetch(desiredUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify(data)
+        });
+        if (response.ok) {
+            const result = await response.json();
+            form.reset();
+            loadTaskAdministrationSection();
+        } else {
+            alert("Eroare la server: " + response.status);
+        }
+     }catch (error){
+        console.error("Error:",error);
+     }
+}
 function renderPendingRequirements(){
    const container = document.getElementById("pending-requirements");
     const removed = document.getElementById("pending-removed-requirements");

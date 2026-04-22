@@ -9,7 +9,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 import users.views
-from projects.models import Project, UserProjectRole, ProjectDomain,ProjectSkillRequirement,ProjectRequirementSection
+from projects.models import Project, UserProjectRole, ProjectDomain, ProjectSkillRequirement, ProjectRequirementSection, \
+    ProjectTask
 
 
 @login_required
@@ -214,3 +215,32 @@ def api_add_project_sections(request,name):
         print(str(e))
     except django.db.DatabaseError:
         return JsonResponse({'status': 'error', 'code': 404})
+@csrf_exempt
+@require_http_methods(["GET"])
+def api_get_project_tasks(request,name):
+    try:
+        project = get_object_or_404(Project, name=name)
+        role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
+        if UserProjectRole.objects.get_role_permissions(role, project)['can_change_project_settings']:
+            tasks = ProjectTask.objects.get_project_tasks(project).values()
+            return JsonResponse({'status': 'succes','tasks':list(tasks)})
+        else:
+            return JsonResponse({'status': 'Unauthorized access', 'code': 403})
+    except Exception as e:
+        print(str(e))
+        return JsonResponse({'status': str(e), 'code': 404})
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_add_project_task(request,name):
+    try:
+        data = json.loads(request.body)
+        project = Project.objects.get(name=name)
+        if project is None:
+            return JsonResponse({'status':'Error','message':'Project does not exist','code':404})
+        title = data.get('title')
+        description = data.get('description')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        return ProjectTask.objects.add_task_to_project(project,title,description,start_date,end_date)
+    except Exception as e:
+        print(str(e))
