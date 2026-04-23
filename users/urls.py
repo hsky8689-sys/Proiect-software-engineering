@@ -3,7 +3,8 @@ from django.shortcuts import redirect
 from django.urls import path
 
 from users.views import signup_page, acces_profile, api_add_skill, api_delete_skill, search_page, \
-    search_api, create_project, api_send_friend_request, connections_page, api_accept_friend_request
+    search_api, create_project, api_send_friend_request, connections_page, api_accept_friend_request, api_remove_friend, \
+    api_cancel_request
 
 app_name = 'users'
 
@@ -22,5 +23,7 @@ urlpatterns = [
     path('create-new-project/',create_project,name='create_project'),
     path('<int:receiver>/send-friend-request/',api_send_friend_request,name='send_friend_request'),
     path('<int:sender>/accept-friend-request/',api_accept_friend_request,name='send_friend_request'),
+    path('<int:removed>/remove-friend/',api_remove_friend,name='remove_friend'),
+    path('<int:id>/cancel-request/',api_cancel_request,name='cancel-request'),
     path('connections-page/',connections_page,name='view_connections')
 ]

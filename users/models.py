@@ -280,6 +280,11 @@ class RequestManager(models.Manager):
             return self.filter(receiver=user)
         except django.db.DatabaseError:
             return []
+    def remove_request(self,request):
+        try:
+            return request.delete()
+        except django.db.DatabaseError:
+            return None
     def send_project_join_request(self,sender,project):
         pass
     def send_project_invitation(self,sender,receiver):
@@ -318,9 +323,23 @@ class UserRequest(models.Model):
                 name='check_valid_status',
             )
         ]
+class FriendshipManager(models.Manager):
+    def remove_friendship(self,friend1,friend2):
+        try:
+            fr = self.get(Q(sender=friend1, receiver=friend2) | Q(sender=friend2, receiver=friend1))
+            return fr.delete()
+        except django.db.DatabaseError:
+            return None
+    def find_friendship(self,friend1,friend2):
+        try:
+            fr = self.filter(Q(sender=friend1,receiver=friend2)|Q(sender=friend2,receiver=friend1))
+            return fr
+        except django.db.DatabaseError:
+            return None
 class Friendship(models.Model):
     sender = models.ForeignKey(User,on_delete=models.CASCADE,related_name='friend1')
     receiver = models.ForeignKey(User,on_delete=models.CASCADE,related_name='friend2')
     startdate = models.DateTimeField(default=datetime.now)
+    objects = FriendshipManager()
     class Meta:
         db_table = 'friendships'

@@ -100,21 +100,28 @@ function getCookie(name){
             location.reload();
         }
     }
-async function handleFriendRequest(action){
+async function handleFriendRequest(action,id){
     try{
-        const user_id = djangoContext.user.id;
         var desiredUrl = ``;
         switch (action) {
             case 'send':{
-                desiredUrl = `/users/${user_id}/send-friend-request/`;
+                desiredUrl = `/users/${id}/send-friend-request/`;
                 break;
             }
             case 'accept':{
-                desiredUrl=`/users/${user_id}/accept-friend-request/`;
+                desiredUrl=`/users/${id}/accept-friend-request/`;
                 break;
             }
             case 'deny':{
-                desiredUrl=`/users/${user_id}/deny-friend-request/`;
+                desiredUrl=`/users/${id}/deny-friend-request/`;
+                break;
+            }
+            case 'remove':{
+                desiredUrl = `/users/${id}/remove-friend/`;
+                break;
+            }
+            case 'cancel':{
+                desiredUrl = `/users/${id}/cancel-request/`
                 break;
             }
             default:{
@@ -122,8 +129,7 @@ async function handleFriendRequest(action){
                 return;
             }
         }
-
-        const response = await fetch(`/users/${user_id}/accept-friend-request/`,{
+        const response = await fetch(desiredUrl,{
                 method: 'POST',
                 headers: { 'X-CSRFToken': getCookie('csrftoken')}
                 });

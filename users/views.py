@@ -9,7 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from projects.models import Project
-from .models import User, UserProfileSection, UserTechnicalSkillSection, UserTechnicalSkill, UserRequest
+from .models import User, UserProfileSection, UserTechnicalSkillSection, UserTechnicalSkill, UserRequest, Friendship
 from .search import SearchManager, SearchFilterData
 
 
@@ -78,13 +78,21 @@ def acces_profile(request,username):
                                              get_user_profile_sections(user, includehidden=False))
     profile_stats["techstack_category"] = UserTechnicalSkillSection.objects.get_user_techstack(user)
     profile_stats["profile_projects"] = Project.objects.get_user_projects(user)
-    requested = False
+    sent_to_him = False
+    received_from_him = False
+    are_friends = False
     try:
-        friendship_request = UserRequest.objects.find_request(request.user, user)
-        if friendship_request is not None:
-            requested = True
+        friendship_request = UserRequest.objects.find_request(request.user, user).first()
+        friendship = Friendship.objects.find_friendship(request.user,user).first()
+        if friendship is not None: are_friends = True
+        if friendship_request:
+            if friendship_request.status == 'pending':
+                if friendship_request.sender_id == request.user.id:
+                    sent_to_him = True
+                else:
+                    received_from_him = True
     except Exception as e:
-            requested = False
+            pass
     context = {
         "username":user.username,
         "email":user.email,
@@ -95,7 +103,9 @@ def acces_profile(request,username):
         "user_projects":profile_stats["profile_projects"],
         "user_posts":profile_stats["user_posts"],
         "is_owner":request.user.username == username,
-        "requested_friendship":requested
+        "sent_to_him": sent_to_him,
+        "received_from_him": received_from_him,
+        "friends": are_friends,
     }
     return render(request, "html/profile.html", context)
 @login_required
@@ -184,6 +194,7 @@ def api_accept_friend_request(request,sender):
         if friend_request.first().status != 'pending':
             return JsonResponse({'status': 'error', 'message': 'Request has already been handled'}, status=403)
         sent = UserRequest.objects.accept_request(friend_request.first())
+        UserRequest.objects.remove_request(friend_request.first())
         if sent is None:
             return JsonResponse({'status': 'error', 'message': 'Request already exists or failed'}, status=400)
         # Aici aveai status 404 pentru "succes", l-am schimbat in 200
@@ -193,6 +204,37 @@ def api_accept_friend_request(request,sender):
     except Exception as e:
         print(f"Eroare API: {str(e)}")
         # Acum view-ul returnează un JSON chiar și când crapă ceva, evitând eroarea 500 în browser
+        return JsonResponse({'status': 'error', 'message': 'Internal Server Error'}, status=500)
+@login_required
+def api_remove_friend(request,removed):
+    try:
+        removed = User.objects.get(id=removed)
+        if removed is None:
+            return JsonResponse({'status': 'error', 'message': 'User does not exist'}, status=404)
+        friendship = Friendship.objects.find_friendship(request.user,removed)
+        if friendship is None:
+            return JsonResponse({'status': 'error', 'message': 'Friendship does not exist'}, status=404)
+        Friendship.objects.remove_friendship(request.user,removed)
+        friendship_request = UserRequest.objects.find_request(request.user,removed)
+        if len(list(friendship_request))>0:
+            UserRequest.objects.remove_request(friendship_request.first())
+        return JsonResponse({'status': 'succes', 'message': 'Friendship was removed'}, status=200)
+    except Exception as e:
+        print(str(e))
+        return JsonResponse({'status': 'error', 'message': 'Internal Server Error'}, status=500)
+@login_required
+def api_cancel_request(request,id):
+    try:
+        user = User.objects.get(id=id)
+        if user is None:
+            return JsonResponse({'status': 'error', 'message': 'User does not exist'}, status=404)
+        request = UserRequest.objects.find_request(request.user,user)
+        if request is None:
+            return JsonResponse({'status': 'error', 'message': 'Request does not exist'}, status=404)
+        UserRequest.objects.remove_request(request)
+        return JsonResponse({'status': 'succes', 'message': 'Request was removed'}, status=200)
+    except Exception as e:
+        print(str(e))
         return JsonResponse({'status': 'error', 'message': 'Internal Server Error'}, status=500)
 @login_required
 def connections_page(request):
