@@ -20,10 +20,9 @@ urlpatterns = [
     path('profile-sections/<int:section_id>',api_handle_profile_section,name='api_handle_profile_section'),
     path('profile-pictures/',api_handle_profile_picture_upload),
     path('background-pictures/',api_add_background_picture),
-
     path('search', search_page, name='search_page'),
     path('search/api', search_api, name='search_api'),
-    path('create-new-project',create_project,name='create_project'),
+    path('project-creation',create_project,name='create_project'),
     path('connections-page',connections_page,name='view_connections'),
     path('api/projects/<int:project_id>/request-file', api_request_file_access, name='request_file_access'),
     path('friend-requests',api_friend_requests,name='friend-requests'),

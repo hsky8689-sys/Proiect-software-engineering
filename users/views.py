@@ -32,7 +32,11 @@ def search_api(request):
         try:
             data = json.loads(request.body)
             query = data.get('query','').lower()
-            data = SearchFilterData(user_id=request.user.id,query=query,search_type='ALL',sort_by_date=False,sort_by_relevance=False)
+            data = SearchFilterData(user_id=request.user.id,
+                                    query=query,
+                                    search_type='ALL',
+                                    sort_by_date=False,
+                                    sort_by_relevance=False)
             manager = SearchManager()
             manager.execute_search(data)
             results = manager.get_results_from_search()
@@ -141,6 +145,7 @@ def acces_profile(request,username):
             for p in profile_stats["profile_projects"]
         ],
         "is_owner":request.user.username == username,
+        "pending_request_id":friendship_request.id if sent_to_him or received_from_him else -1,
         "sent_to_him": sent_to_him,
         "received_from_him": received_from_him,
         "friends": are_friends,
@@ -177,69 +182,67 @@ def login_page(request):
            return JsonResponse({'status':'bad request','message':'You are already logged in'},status=400)
         return JsonResponse({'status': 'ready'},status=200)
 @login_required
+@csrf_protect
 @require_POST
+@ratelimit(key='user', rate='20/m', method='POST',block=True)
 def logout_page(request):
     logout(request)
     return JsonResponse({'status': 'success', 'message': 'Logged out'}, status=200)
 @login_required
 @csrf_protect
-@require_http_methods(["GET","POST"])
-@ratelimit(key='user', rate='60/m', method='GET',block=True)
+@require_POST
 @ratelimit(key='user', rate='20/m', method='POST',block=True)
 def create_project(request):
-    if request.method == 'GET':
-        return JsonResponse({'status': 'ready', 'user_id': request.user.id})
-    elif request.method == 'POST':
-        try:
-            data = json.loads(request.body)
-        except json.JSONDecodeError:
-            return JsonResponse({'status': 'error', 'message': 'Invalid JSON'}, status=400)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'message': 'Invalid JSON'}, status=400)
 
-        name = data.get('name')
-        description = data.get('description')
-        if not name or not description:
-            return JsonResponse({'status': 'error', 'message': 'name and description are required'}, status=400)
+    name = data.get('name')
+    description = data.get('description')
+    if not name or not description:
+        return JsonResponse({'status': 'error', 'message': 'name and description are required'}, status=400)
 
-        needed_skills = data.get('needed_skills', {})
-        if not isinstance(needed_skills, dict) or not all(
+    needed_skills = data.get('needed_skills', {})
+    if not isinstance(needed_skills, dict) or not all(
             isinstance(domain, str) and isinstance(skills, list) and all(isinstance(s, str) for s in skills)
             for domain, skills in needed_skills.items()
-        ):
-            return JsonResponse({
-                'status': 'error',
-                'message': 'needed_skills must be an object of {domain: [skill, ...]}'
-            }, status=400)
+    ):
+        return JsonResponse({
+            'status': 'error',
+            'message': 'needed_skills must be an object of {domain: [skill, ...]}'
+        }, status=400)
 
-        github_repos = data.get('github_repos', [])
-        if not isinstance(github_repos, list) or not all(
+    github_repos = data.get('github_repos', [])
+    if not isinstance(github_repos, list) or not all(
             isinstance(repo, dict) and repo.get('github_repo_name') and repo.get('github_repo_link')
             for repo in github_repos
-        ):
-            return JsonResponse({
-                'status': 'error',
-                'message': 'github_repos must be a list of {github_repo_name, github_repo_link, github_repo_access_token}'
-            }, status=400)
-
-        user_id = request.user.id
-        project = Project.objects.create_project(user_id, name, description, needed_skills, github_repos)
-        if project is None:
-            return JsonResponse({
-                'status': 'error',
-                'message': 'Numele de proiect este deja folosit sau invalid (doar litere, cifre, "-" și "_").'
-            }, status=400)
+    ):
         return JsonResponse({
-            'status': 'success',
-            'project': {
-                'id': project.id,
-                'name': project.name,
-                'description': project.description,
-                'needed_skills': ProjectSkillRequirement.objects.get_requirements_grouped_by_sections(project),
-                'github_repos': [
-                    {'id': r.id, 'github_repo_name': r.github_repo_name, 'github_repo_link': r.github_repo_link}
-                    for r in project.repo_stats.all()
-                ],
-            },
-        }, status=201)
+            'status': 'error',
+            'message': 'github_repos must be a list of {github_repo_name, github_repo_link, github_repo_access_token}'
+        }, status=400)
+
+    user_id = request.user.id
+    project = Project.objects.create_project(user_id, name, description, needed_skills, github_repos)
+    if project is None:
+        return JsonResponse({
+            'status': 'error',
+            'message': 'Project name is already used or contains other characters than small letters,capitals or "_" and '-''
+        }, status=400)
+    return JsonResponse({
+        'status': 'success',
+        'project': {
+            'id': project.id,
+            'name': project.name,
+            'description': project.description,
+            'needed_skills': ProjectSkillRequirement.objects.get_requirements_grouped_by_sections(project),
+            'github_repos': [
+                {'id': r.id, 'github_repo_name': r.github_repo_name, 'github_repo_link': r.github_repo_link}
+                for r in project.repo_stats.all()
+            ],
+        },
+    }, status=201)
 @login_required
 @csrf_protect
 @require_POST
@@ -382,7 +385,7 @@ def api_friend_requests(request):
         sent = UserRequest.objects.send_friend_request(request.user, user)
         if sent is None:
             return JsonResponse({'status': 'error', 'message': 'Request already exists or failed'}, status=400)
-        return JsonResponse({'status': 'succes', 'code': 200, 'id': sent.id})
+        return JsonResponse({'status': 'success', 'code': 200, 'request_id': sent.id})
     except User.DoesNotExist:
         return JsonResponse({'status': 'error', 'message': 'User not found'}, status=404)
     except Exception as e:
@@ -406,16 +409,16 @@ def api_friend_request_detail(request,id):
                 if friend_request.status != 'pending':
                     return JsonResponse({'status': 'error', 'message': 'Request has already been handled'}, status=403)
                 data = json.loads(request.body or '{}')
-                if data.get('status') != 'accepted':
+                if data.get('status') != 'pending':
                     return JsonResponse({'status': 'error', 'message': 'Unsupported status transition'}, status=400)
                 sent = UserRequest.objects.accept_request(friend_request)
                 if sent is None:
                     return JsonResponse({'status': 'error', 'message': 'Request has not been sent'}, status=500)
                 UserRequest.objects.remove_request(friend_request)
-                return JsonResponse({'status': 'succes', 'message': 'Request accepted'}, status=200)
+                return JsonResponse({'status': 'success', 'message': 'Request accepted'}, status=200)
             case "DELETE":
                 UserRequest.objects.remove_request(friend_request)
-                return JsonResponse({'status': 'succes', 'message': 'Request was removed'}, status=200)
+                return JsonResponse({'status': 'success', 'message': 'Request was removed'}, status=200)
     except Exception as e:
         print(str(e))
         return JsonResponse({'status': 'error', 'message': 'Internal Server Error'}, status=500)
@@ -438,7 +441,7 @@ def api_remove_friend(request,removed):
         friendship_request = UserRequest.objects.find_request(request.user,removed)
         if len(list(friendship_request))>0:
             UserRequest.objects.remove_request(friendship_request.first())
-        return JsonResponse({'status': 'succes', 'message': 'Friendship was removed'}, status=200)
+        return JsonResponse({'status': 'success', 'message': 'Friendship was removed'}, status=200)
     except Exception as e:
         print(str(e))
         return JsonResponse({'status': 'error', 'message': 'Internal Server Error'}, status=500)

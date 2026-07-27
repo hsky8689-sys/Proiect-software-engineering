@@ -828,7 +828,9 @@ class ProjectJoinRequestTests(ProjectMembershipMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         req = UserRequest.objects.get(sender=self.outsider, request_type='project')
         self.assertEqual(req.receiver_id, self.owner.id)
-        self.assertEqual(req.target, str(self.project.id))
+        self.assertEqual(req.project_id, self.project.id)
+        self.assertIn(self.outsider.username, req.target)
+        self.assertIn(self.project.name, req.target)
         self.assertEqual(req.status, 'pending')
 
     def test_existing_member_cannot_request_to_join(self):
@@ -1139,7 +1141,7 @@ class ProjectInviteTests(ProjectMembershipMixin, TestCase):
             other_project = Project.objects.create_project(other_owner.id, f'projinviterl_proj_{i}_{secrets.token_hex(4)}', 'd')
             invite_ids.append(UserRequest.objects.create(
                 sender=other_owner, receiver=self.outsider, request_type='project_invite',
-                target=str(other_project.id), status='pending'
+                project_id=other_project.id, status='pending'
             ).id)
 
         self.client.force_login(self.outsider)

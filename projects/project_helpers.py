@@ -87,9 +87,6 @@ def _get_project_requirements(request,id):
         project = Project.objects.filter(id=id).first()
         if project is None:
             return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
-        role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
-        if role == 'visitor':
-            return JsonResponse({'status': 'error', 'message': 'You are not a member of this project'}, status=403)
         succes = ProjectSkillRequirement.objects.get_requirements_grouped_by_sections(project)
         return JsonResponse({'status':'succes','requirements':succes})
     except Exception as e:
@@ -204,13 +201,31 @@ def _get_project_tasks(request,id):
         if project is None:
             return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
         role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
-        if UserProjectRole.objects.get_role_permissions(role, project)['can_change_project_settings']:
+        if UserProjectRole.objects.get_role_permissions(role, project)['can_modify_tasks']:
             tasks = list(ProjectTask.objects.get_project_tasks(project).values())
             if tasks is None or len(tasks) == 0:
                 return JsonResponse({'status': 'success',
                                      'message': 'No tasks were found for the given project',
                                      'tasks': []}, status=404)
             else:
+                task_ids = [task['id'] for task in tasks]
+
+                usernames_by_task = {}
+                participations = ProjectTaskParticipation.objects.filter(
+                    task_id__in=task_ids, user__isnull=False
+                ).select_related('user')
+                for participation in participations:
+                    usernames_by_task.setdefault(participation.task_id, []).append(participation.user.username)
+
+                resource_paths_by_task = {}
+                resources = TaskResourceAccess.objects.filter(task_id__in=task_ids).values('task_id', 'resource_path')
+                for resource in resources:
+                    resource_paths_by_task.setdefault(resource['task_id'], []).append(resource['resource_path'])
+
+                for task in tasks:
+                    task['usernames'] = usernames_by_task.get(task['id'], [])
+                    task['resource_paths'] = resource_paths_by_task.get(task['id'], [])
+
                 return JsonResponse({'status': 'success',
                                      'message': 'Tasks were successfully retrieved',
                                      'tasks': tasks}, status=200)
@@ -260,6 +275,35 @@ def _add_project_task(request,id):
             'resource_paths': valid_resource_paths,
             'affiliated_users': [u.username for u in valid_users]
         }, status=200)
+    except Exception as e:
+        print(str(e))
+        return JsonResponse({'status':'error','message':'Internal server error'},status=500)
+def _edit_project_task(request,id):
+    try:
+        project = Project.objects.filter(id=id).first()
+        if project is None:
+            return JsonResponse({'status':'Error','message':'Project does not exist'},status=404)
+        role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
+        if not UserProjectRole.objects.get_role_permissions(role, project)['can_modify_tasks']:
+            return JsonResponse({'status': 'Unauthorized access'}, status=403)
+        data = json.loads(request.body)
+        task_id = data.get('task_id')
+        if not task_id:
+            return JsonResponse({'status':'bad request','message':'task_id is required'},status=400)
+
+        task = ProjectTask.objects.update_task(
+            project,
+            task_id,
+            name=data.get('title'),
+            description=data.get('description'),
+            start_date=data.get('start_date'),
+            end_date=data.get('end_date')
+        )
+        if task is None:
+            return JsonResponse({'status':'error','message':'Task not found'},status=404)
+        if task == []:
+            return JsonResponse({'status':'bad request','message':'Task could not be updated'},status=400)
+        return JsonResponse({'status':'success','message':'Task successfully updated','task_id':task.id},status=200)
     except Exception as e:
         print(str(e))
         return JsonResponse({'status':'error','message':'Internal server error'},status=500)

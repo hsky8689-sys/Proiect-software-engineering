@@ -1,9 +1,7 @@
-import ast
 import base64
 import hashlib
 import hmac
 import json
-import re
 from datetime import datetime
 import requests
 from django.contrib.auth.decorators import login_required
@@ -26,10 +24,11 @@ from projects.github_utils import get_project_owner_repo_from_link, get_project_
 from projects.project_helpers import get_user_file_permissions, _get_project_domains, _add_project_domains, \
     _delete_project_domains, _get_project_requirements, _add_project_requirements, _remove_project_requirements, \
     _remove_project_sections, _add_project_sections, _get_project_tasks, _add_project_task, _remove_project_tasks, \
+    _edit_project_task, \
     _get_project_roles, _add_project_role
 from projects.models import Project, UserProjectRole, ProjectDomain, \
     ProjectTask, ProjectRole, ResourceAccess, TaskResourceAccess, ProjectTaskParticipation, ProjectRepoStats, \
-    AuditLogAction
+    AuditLogAction, ProjectSkillRequirement
 from users.models import User, UserRequest
 
 @login_required
@@ -44,6 +43,7 @@ def open_project_page(request,name):
     user_role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
     visitor_permissions = UserProjectRole.objects.get_role_permissions(user_role,project)
     project_domains = ProjectDomain.objects.get_project_domains(project)
+    project_requirements = ProjectSkillRequirement.objects.get_requirements_grouped_by_sections(project)
     owner_username,repo_name='no_github_owner_set','no_github_name_set'
     branches = []
     active_repo_id = None
@@ -75,6 +75,7 @@ def open_project_page(request,name):
         'active_repo_id':active_repo_id,
         'staff': staff_serialized,
         'branches':branches,
+        'requirements':project_requirements,
         'roles': list(staff.keys()),
         'domains':list(project_domains),
         'description':project.description,
@@ -186,9 +187,10 @@ def api_project_requirement_sections(request,id):
             return _remove_project_sections(request,id)
 @login_required
 @csrf_protect
-@require_http_methods(["GET","POST","DELETE"])
+@require_http_methods(["GET","POST","PATCH","DELETE"])
 @ratelimit(key='user',rate='120/m',method='GET',block=True)
 @ratelimit(key='user',rate='30/m',method='POST',block=True)
+@ratelimit(key='user',rate='30/m',method='PATCH',block=True)
 @ratelimit(key='user',rate='30/m',method='DELETE',block=True)
 def api_project_tasks(request,id):
     match request.method:
@@ -196,6 +198,8 @@ def api_project_tasks(request,id):
             return _get_project_tasks(request,id)
         case "POST":
             return _add_project_task(request,id)
+        case "PATCH":
+            return _edit_project_task(request,id)
         case "DELETE":
             return _remove_project_tasks(request,id)
 
@@ -264,7 +268,7 @@ def github_proxy_view(request, owner, repo, path=""):
         response = requests.get(url, headers=headers)
 
     if response.status_code != 200:
-        return JsonResponse({'error': 'Nu am putut lua arborele'}, status=response.status_code)
+        return JsonResponse({'error': 'Could not fetch tree'}, status=response.status_code)
 
     raw_tree = response.json().get('tree', [])
 
@@ -679,10 +683,6 @@ def api_share_file_access(request, name):
 @ratelimit(key='user',rate='20/m',block=True)
 def api_request_project_join(request, project_id):
     try:
-        # .get() (not get_object_or_404) so the existing
-        # `except Project.DoesNotExist` below actually fires - it never did
-        # while this used get_object_or_404, which raises Http404 instead
-        # and fell through to the generic except as an unintended 500.
         project = Project.objects.get(id=project_id)
 
         if UserProjectRole.objects.get_user_role_in_project(project, request.user) != 'visitor':
@@ -691,7 +691,7 @@ def api_request_project_join(request, project_id):
         pending_exists = UserRequest.objects.filter(
             sender=request.user,
             request_type='project',
-            target=str(project.id),
+            project_id=project.id,
             status='pending'
         ).exists()
 
@@ -713,7 +713,8 @@ def api_request_project_join(request, project_id):
                     receiver=admin,
                     defaults={
                         'request_type': 'project',
-                        'target': str(project.id),
+                        'project_id': project.id,
+                        'target': f'{request.user.username} requested to join {project.name}',
                         'status': 'pending'
                     }
                 )
@@ -748,16 +749,11 @@ def api_handle_project_join_request(request):
         if user_req is None:
             return JsonResponse({'status': 'error', 'message': 'Request not found'}, status=404)
         if user_req.receiver_id != request.user.id:
-            # Was missing entirely - any authenticated user who could guess/
-            # know a (sender_id, receiver_id) pair could accept or decline a
-            # join request addressed to someone else. api_handle_project_invite
-            # already has the equivalent check for invites; this mirrors it.
             return JsonResponse({'status': 'error', 'message': 'Only the receiver can handle this request'}, status=403)
 
-        if not user_req.target:
+        if not user_req.project_id:
             return JsonResponse({'status': 'error', 'message': 'No project associated with this request'}, status=400)
-        project_id = user_req.target.strip("'\"")
-        project = Project.objects.filter(id=int(project_id)).first()
+        project = Project.objects.filter(id=user_req.project_id).first()
         if project is None:
             return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
 
@@ -770,11 +766,6 @@ def api_handle_project_join_request(request):
             UserProjectRole.objects.create(
                 user=user_req.sender,
                 project=project,
-                # 'viewer' is DEFAULT_PROJECT_ROLES's only all-permissions-False
-                # role, i.e. the least-privileged one - used as the default
-                # role for a freshly-joined member. There is no 'newbie' role
-                # (this used to reference one that was never defined, which
-                # made accepting a join request always 500).
                 role=ProjectRole.objects.get(name='viewer')
             )
             cache_manager.delete(UserCacheKey.PROJECTS.format(user_id=user_req.sender_id))
@@ -830,7 +821,7 @@ def api_invite_to_project(request, id):
             sender=request.user,
             receiver=target_user,
             request_type='project_invite',
-            target=str(project.id),
+            project_id=project.id,
             status='pending'
         ).exists()
         if pending_exists:
@@ -840,7 +831,8 @@ def api_invite_to_project(request, id):
             sender=request.user,
             receiver=target_user,
             request_type='project_invite',
-            target=str(project.id),
+            project_id=project.id,
+            target=f'{request.user.username} invited {target_user.username} to join {project.name}',
             status='pending'
         )
         return JsonResponse({'status': 'success', 'message': f'Invite sent to {target_user.username}', 'invite_id': invite.id}, status=201)
@@ -865,7 +857,7 @@ def api_handle_project_invite(request, invite_id):
         if invite.status != 'pending':
             return JsonResponse({'status': 'error', 'message': 'Invite has already been handled'}, status=400)
 
-        project = Project.objects.filter(id=int(invite.target)).first()
+        project = Project.objects.filter(id=invite.project_id).first()
         if project is None:
             invite.status = 'declined'
             invite.save(update_fields=['status'])
@@ -985,16 +977,26 @@ def api_request_file_access(request, project_id):
         if not project_admins.exists():
             return JsonResponse({'status': 'error', 'message': 'Proiectul nu are admini capabili să aprobe.'}, status=404)
 
-        # 2. Creăm cererea de tip 'file' pentru admin(i)
-        # Salvăm calea fișierului direct în câmpul 'target'
+        # 2. Creăm cererea de tip 'file_access' pentru admin(i)
         for admin in project_admins:
-            UserRequest.objects.update_or_create(
+            pending_exists = UserRequest.objects.filter(
                 sender=request.user,
                 receiver=admin,
-                target=filepath,
-                request_type='file',
-                defaults={'status': 'pending'}
-            )
+                request_type='file_access',
+                project_id=project.id,
+                requested_files=[filepath],
+                status='pending'
+            ).exists()
+            if not pending_exists:
+                UserRequest.objects.create(
+                    sender=request.user,
+                    receiver=admin,
+                    request_type='file_access',
+                    project_id=project.id,
+                    requested_files=[filepath],
+                    target=f'{request.user.username} requested access to {filepath} in {project.name}',
+                    status='pending'
+                )
 
         return JsonResponse({'status': 'success', 'message': 'Cerere trimisă cu succes!'}, status=200)
 
@@ -1033,19 +1035,13 @@ def api_handle_file_access_request(request):
             user_req.save()
             return JsonResponse({'status': 'success', 'message': 'File access request declined.'}, status=200)
 
-        match = re.search(r"files (\[.*\]) in project (.+)$", user_req.target or '')
-        if not match:
+        requested_files = user_req.requested_files or []
+        if not user_req.project_id or not requested_files:
             user_req.status = 'declined'
             user_req.save()
-            return JsonResponse({'status': 'error', 'message': 'Could not parse the requested files for this request.'}, status=400)
+            return JsonResponse({'status': 'error', 'message': 'No files associated with this request.'}, status=400)
 
-        try:
-            requested_files = ast.literal_eval(match.group(1))
-        except (ValueError, SyntaxError):
-            requested_files = []
-        project_name = match.group(2)
-
-        project = Project.objects.filter(name=project_name).first()
+        project = Project.objects.filter(id=user_req.project_id).first()
         if not project:
             user_req.status = 'declined'
             user_req.save()

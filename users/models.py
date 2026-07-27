@@ -1,4 +1,3 @@
-import re
 import django.db
 from django.contrib.auth.password_validation import validate_password
 from django.core.validators import validate_slug
@@ -355,7 +354,8 @@ class RequestManager(models.Manager):
                 receiver=receiver,
                 request_type='friend',
                 status= 'pending',
-                timestamp= timezone.now()
+                timestamp= timezone.now(),
+                target=f'{sender.username} sent a friend request to {receiver.username}'
             )
             cache_manager.delete(UserCacheKey.FRIENDSHIP_REQUESTS.format(user_id=receiver.id))
             return obj
@@ -367,7 +367,8 @@ class RequestManager(models.Manager):
                     receiver=receiver,
                     request_type='friend',
                     status='pending',
-                    timestamp=timezone.now()
+                    timestamp=timezone.now(),
+                    target=f'{sender.username} sent a friend request to {receiver.username}'
                 )
             cache_manager.delete(UserCacheKey.FRIENDSHIP_REQUESTS.format(user_id=receiver.id))
             return obj
@@ -469,12 +470,11 @@ class RequestManager(models.Manager):
                 if found is None:
                     return False
                 if response == 'ACCEPT':
-                    match = re.match(r'\[.*?\]Requesting acces for URL:(.*) in project (.*)$', found.target or '')
-                    if not match:
+                    if not found.project_id or not found.requested_files:
                         transaction.set_rollback(True)
                         return False
-                    file_url, project_name = match.group(1), match.group(2)
-                    project = Project.objects.filter(name=project_name).first()
+                    file_url = found.requested_files[0]
+                    project = Project.objects.filter(id=found.project_id).first()
                     if project is None:
                         transaction.set_rollback(True)
                         return False
@@ -499,7 +499,10 @@ class RequestManager(models.Manager):
                                  request_type='file_access',
                                  status='pending',
                                  receiver_id=admin.id,
-                                 target='Requesting acces for files {} in project {}'.format(requested_access,project.name),
+                                 project_id=project.id,
+                                 requested_files=requested_access,
+                                 target='{} requested access to {} file(s) in {}'.format(
+                                     user.username,len(requested_access),project.name),
                                  ) for admin in valid_admins]
                 )
         except django.db.DatabaseError as e:
@@ -513,7 +516,9 @@ class RequestManager(models.Manager):
                     receiver_id=receiver.id,
                     status='pending',
                     request_type='move_file_access',
-                    target='[{}]Requesting acces for URL:{} in project {}'.format(sender.username,file,project.name)
+                    project_id=project.id,
+                    requested_files=[file],
+                    target='{} requested to move/access {} in {}'.format(sender.username,file,project.name)
                 ) is not None
         except django.db.DatabaseError as e:
             print(str(e))
@@ -534,9 +539,23 @@ class UserRequest(models.Model):
     timestamp = models.DateTimeField(default=timezone.now,db_index=True)
     request_type = models.CharField(
         max_length=20,
-        choices=[('friend', 'friend'), ('project', 'project'), ('project_invite', 'project_invite'), ('file_access', 'file_access'), ('move_file_access', 'move_file_access')]
+        choices=[('friend', 'friend'),
+                 ('project', 'project'),
+                 ('project_invite', 'project_invite'),
+                 ('file_access', 'file_access'),
+                 ('move_file_access', 'move_file_access')]
     )
-    target = models.CharField(max_length=255, null=True, blank=True, db_index=True,default=None)
+    # human-readable message describing the request (e.g. "X sent a friend
+    # request to Y") - NOT a lookup key. project/project_invite requests need
+    # an actual project reference for accept/decline, which lives separately
+    # in `project_id` below (a plain int, not a ForeignKey, so this table
+    # doesn't need to know about the Project model at all).
+    target = models.CharField(max_length=255, null=True, blank=True, default=None)
+    project_id = models.IntegerField(null=True, blank=True, default=None)
+    # file_access/move_file_access requests need the actual list of paths for
+    # accept/decline - stored structured here instead of being regex-parsed
+    # back out of `target`. move_file_access always uses a single-item list.
+    requested_files = models.JSONField(null=True, blank=True, default=None)
     status = models.CharField(
         max_length=20,
         choices=[('pending', 'pending'), ('declined', 'declined'), ('accepted', 'accepted')]

@@ -2,7 +2,7 @@ from django.http import JsonResponse
 from django.db.models import Q
 
 from projects.models import Project
-from users.models import User
+from users.models import User, UserProfileData
 
 
 class SearchFilterData():
@@ -18,7 +18,6 @@ class SearchManager():
     def __init__(self):
         self.results = {'people':[],'projects':[]}
     def execute_search(self,filter_data):
-        print("Executed query is "+filter_data.query)
         self.results = {'people':[],'projects':[]}
         from devnetwork import settings
         if not filter_data.search_type in settings.SEARCH_TYPE:
@@ -37,13 +36,17 @@ class SearchManager():
         elif filter_data.search_type == 'ALL':
             self.results['people'] = list(User.objects.filter(
                 username__icontains=filter_data.query,
-                email__icontains=filter_data.query
-            ).values('id', 'username', 'email')[:20])
+                email__icontains=filter_data.query,
+            ).values('id', 'username')[:20])
+
+            profile_data = UserProfileData.objects
+            for user in self.results['people']:
+                user['profile_picture'] = (profile_data.get_profile_data(User(id=user['id']))
+                                                      .profile_picture.name)
 
             self.results['projects'] = list(Project.objects.filter(
                 Q(name__icontains=filter_data.query)|
                 Q(description__icontains=filter_data.query)
-            ).values('name')[:20])
-            print(self.results['projects'])
+            ).values('id','name','description')[:20])
     def get_results_from_search(self):
             return self.results

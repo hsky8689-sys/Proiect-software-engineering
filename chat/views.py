@@ -4,12 +4,14 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods, require_GET
 from django_ratelimit.decorators import ratelimit
 from chat.models import Conversation
 from chat.service import ConversationService
 from projects.models import Project, UserProjectRole
 @login_required
+@csrf_protect
 @require_http_methods(["GET"])
 @ratelimit(key='user_or_ip',rate='5/s',method='GET')
 def load_user_conversations(request):
@@ -30,16 +32,22 @@ def load_user_conversations(request):
             page_nr,
             page_size=page_size
         )
-        serialized_messages = [
-            {
+        serialized_messages = []
+        for conv in conversations:
+            if conv.is_group:
+                name = f'{conv.project.name} conversation' if conv.project_id else 'Group conversation'
+            else:
+                other_participant = conv.participants.exclude(id=user_id).first()
+                name = other_participant.username if other_participant else None
+            serialized_messages.append({
                 "id": conv.id,
-                "last_message": conv.last_message_timestamp
-            }
-            for conv in conversations
-        ]
+                "last_message": conv.last_message_timestamp,
+                "name": name
+            })
         return JsonResponse({
             'success': True,
             'message': f'Page with index {page_nr} was retrieved',
+            'user_id':user_id,
             'content': serialized_messages
         }, status=200)
     except ValueError:
@@ -85,6 +93,7 @@ def load_chat_by_id(request,conversation_id):
         return JsonResponse({'error': str(e)}, status=500)
 
 @login_required
+
 def open_chat_room(request):
     try:
         conv_id = request.GET.get("conv_id")

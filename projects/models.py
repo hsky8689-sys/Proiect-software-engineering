@@ -215,6 +215,42 @@ class ProjectTaskManager(models.Manager):
             print(str(e))
             return 0
 
+    def update_task(self, project, task_id, name=None, description=None, start_date=None, end_date=None):
+        """
+        Partially updates a task - only fields that are not None get changed.
+        Same validation rules as add_task_to_project (unique name per project,
+        start_date <= end_date, description <= 300 chars), applied against the
+        resulting merged values, not just the changed ones.
+        :return: the updated task on success, None if no task with `task_id`
+                 exists in `project`, or [] if validation failed
+        """
+        try:
+            with transaction.atomic():
+                task = self.select_for_update().filter(id=task_id, project=project).first()
+                if task is None:
+                    return None
+                new_name = name if name is not None else task.name
+                new_description = description if description is not None else task.description
+                new_start_date = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date is not None else task.start_date
+                new_end_date = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date is not None else task.end_date
+
+                if self.filter(project=project, name=new_name).exclude(id=task.id).exists():
+                    return []
+                if new_start_date > new_end_date:
+                    return []
+                if len(new_description) > 300:
+                    return []
+
+                task.name = new_name
+                task.description = new_description
+                task.start_date = new_start_date
+                task.end_date = new_end_date
+                task.save(update_fields=['name', 'description', 'start_date', 'end_date'])
+                return task
+        except (django.db.DatabaseError, ValueError) as e:
+            print(str(e))
+            return []
+
 class ProjectTask(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
     name = models.CharField(max_length=100, default='New task', blank=True)
