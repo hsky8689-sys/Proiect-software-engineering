@@ -2,7 +2,7 @@ from django.urls import path
 
 from projects.views import open_project_page, open_project_members_page, open_project_settings, \
     api_project_domains, api_project_requirements, api_project_requirement_sections, api_project_tasks, \
-    api_project_roles, api_assign_users_to_role, \
+    api_project_roles, api_assign_users_to_role, api_kick_users_from_project, api_get_role_permissions, \
     github_proxy_view, proxy_run_code, push_files, \
     api_get_availible_languages, api_request_project_join, api_handle_project_join_request, request_file_open, \
     api_handle_file_access_request, api_request_file_share, api_handle_request_file_share, \
@@ -22,6 +22,8 @@ urlpatterns = [
     path("settings/<int:id>/tasks", api_project_tasks, name="project-tasks"),
     path("settings/<int:id>/roles", api_project_roles, name="project-roles"),
     path("settings/<int:id>/roles/assign", api_assign_users_to_role, name="assign-role"),
+    path("settings/<int:id>/kick", api_kick_users_from_project, name="kick-users"),
+    path("settings/<int:id>/role-permissions", api_get_role_permissions, name="role-permissions"),
     path("settings/<int:id>/push-policy", api_project_push_policy, name="project-push-policy"),
     path('api/github/branches',api_github_get_all_repo_branches,name='get-all-repo-branches'),
     path('api/github/<int:id>/branches',api_github_handle_branch_action,name='add-branch-on-github-repo'),

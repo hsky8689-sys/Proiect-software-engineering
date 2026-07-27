@@ -25,7 +25,7 @@ from projects.project_helpers import get_user_file_permissions, _get_project_dom
     _delete_project_domains, _get_project_requirements, _add_project_requirements, _remove_project_requirements, \
     _remove_project_sections, _add_project_sections, _get_project_tasks, _add_project_task, _remove_project_tasks, \
     _edit_project_task, \
-    _get_project_roles, _add_project_role
+    _get_project_roles, _add_project_role, _edit_project_role
 from projects.models import Project, UserProjectRole, ProjectDomain, \
     ProjectTask, ProjectRole, ResourceAccess, TaskResourceAccess, ProjectTaskParticipation, ProjectRepoStats, \
     AuditLogAction, ProjectSkillRequirement
@@ -573,15 +573,18 @@ def push_files(request):
 
 @login_required
 @csrf_protect
-@require_http_methods(["GET","POST"])
+@require_http_methods(["GET","POST","PATCH"])
 @ratelimit(key='user',rate='120/m',method='GET',block=True)
 @ratelimit(key='user',rate='20/m',method='POST',block=True)
+@ratelimit(key='user',rate='20/m',method='PATCH',block=True)
 def api_project_roles(request, id):
     match request.method:
         case "GET":
             return _get_project_roles(request, id)
         case "POST":
             return _add_project_role(request, id)
+        case "PATCH":
+            return _edit_project_role(request, id)
 
 @login_required
 @csrf_protect
@@ -630,6 +633,77 @@ def api_assign_users_to_role(request, id):
 
     except Exception as e:
         print(f"Eroare in api_assign_users_to_role: {str(e)}")
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+@login_required
+@csrf_protect
+@require_GET
+@ratelimit(key='user',rate='120/m',block=True)
+def api_get_role_permissions(request, id):
+    try:
+        project = Project.objects.filter(id=id).first()
+        if project is None:
+            return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
+
+        requester_role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
+        if requester_role == 'visitor':
+            return JsonResponse({'status': 'Unauthorized access'}, status=403)
+
+        role_name = request.GET.get('role_name')
+        if not role_name:
+            return JsonResponse({'status': 'bad request', 'message': 'role_name is required'}, status=400)
+
+        permissions = UserProjectRole.objects.get_role_permissions(role_name, project)
+        return JsonResponse({'status': 'success', 'role_name': role_name, 'permissions': permissions}, status=200)
+    except Exception as e:
+        print(f"Eroare in api_get_role_permissions: {str(e)}")
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+@login_required
+@csrf_protect
+@require_POST
+@ratelimit(key='user',rate='20/m',block=True)
+def api_kick_users_from_project(request, id):
+    try:
+        project = Project.objects.filter(id=id).first()
+        if project is None:
+            return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
+        user_role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
+
+        if not UserProjectRole.objects.get_role_permissions(user_role, project)['can_kick_others']:
+            return JsonResponse({'status': 'Unauthorized access'}, status=403)
+
+        data = json.loads(request.body)
+        usernames = data.get('usernames', [])
+
+        kicked_users = []
+        skipped_users = []
+
+        for username in usernames:
+            if username == request.user.username:
+                skipped_users.append(username)
+                continue
+            try:
+                membership = UserProjectRole.objects.select_related('user', 'role').get(
+                    project=project, user__username=username
+                )
+            except UserProjectRole.DoesNotExist:
+                skipped_users.append(username)
+                continue
+
+            if membership.role.name == 'owner':
+                skipped_users.append(username)
+                continue
+
+            target_user_id = membership.user_id
+            membership.delete()
+            cache_manager.delete(ProjectCacheKey.USER_ROLE.format(project_id=project.id, user_id=target_user_id))
+            kicked_users.append(username)
+
+        return JsonResponse({'status': 'success', 'kicked': kicked_users, 'skipped': skipped_users}, status=200)
+
+    except Exception as e:
+        print(f"Eroare in api_kick_users_from_project: {str(e)}")
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 @login_required

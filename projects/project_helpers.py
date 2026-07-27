@@ -2,6 +2,7 @@ import json
 import django.db
 from django.db import transaction
 from django.http import JsonResponse
+from devnetwork.caching import cache_manager, ProjectCacheKey
 from projects.github_utils import get_project_tree_paths
 from projects.models import Project, UserProjectRole, ProjectDomain, ProjectSkillRequirement, \
     ProjectRequirementSection, ProjectTask, ProjectRole, TaskResourceAccess, ProjectTaskParticipation
@@ -393,4 +394,62 @@ def _add_project_role(request, id):
             return JsonResponse({'status': 'Unauthorized access'}, status=403)
     except Exception as e:
         print(f"Eroare in api_add_project_role: {str(e)}")
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+PROTECTED_ROLE_NAMES = ('owner', 'viewer')
+
+def _edit_project_role(request, id):
+    try:
+        project = Project.objects.filter(id=id).first()
+        if project is None:
+            return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
+        user_role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
+        if not UserProjectRole.objects.get_role_permissions(user_role, project)['can_change_project_settings']:
+            return JsonResponse({'status': 'Unauthorized access'}, status=403)
+
+        data = json.loads(request.body)
+        role_id = data.get('role_id')
+        if not role_id:
+            return JsonResponse({'status': 'bad request', 'message': 'role_id is required'}, status=400)
+
+        role = ProjectRole.objects.filter(id=role_id).first()
+        if role is None:
+            return JsonResponse({'status': 'error', 'message': 'Role not found'}, status=404)
+
+        if role.name in PROTECTED_ROLE_NAMES:
+            return JsonResponse({'status': 'error', 'message': 'The owner and viewer roles can never be modified'}, status=403)
+
+        new_name = data.get('name') if data.get('name') is not None else role.name
+        if new_name in PROTECTED_ROLE_NAMES:
+            return JsonResponse({'status': 'error', 'message': 'A role cannot be renamed to owner or viewer'}, status=403)
+
+        permission_fields = [
+            'can_accept_invites', 'can_invite_others', 'can_kick_others',
+            'can_change_roles', 'can_create_branches', 'can_modify_branches', 'can_merge_branches',
+            'can_delete_branches', 'can_add_tasks', 'can_delete_tasks', 'can_modify_tasks',
+            'can_modify_files', 'can_execute_code', 'can_share_file_access', 'can_change_project_settings'
+        ]
+        new_values = {
+            field: data.get(field) if data.get(field) is not None else getattr(role, field)
+            for field in permission_fields
+        }
+        if all(new_values.values()):
+            return JsonResponse({'status': 'error', 'message': 'Cannot recreate the owner role'}, status=403)
+
+        old_name = role.name
+        role.name = new_name
+        for field, value in new_values.items():
+            setattr(role, field, value)
+        role.save(update_fields=['name', *permission_fields])
+
+        affected_user_ids = list(UserProjectRole.objects.filter(role=role).values_list('user_id', flat=True))
+        cache_manager.delete(ProjectCacheKey.ROLE_PERMISSIONS.format(project_id=project.id, role_name=old_name))
+        if new_name != old_name:
+            cache_manager.delete(ProjectCacheKey.ROLE_PERMISSIONS.format(project_id=project.id, role_name=new_name))
+        for user_id in affected_user_ids:
+            cache_manager.delete(ProjectCacheKey.USER_ROLE.format(project_id=project.id, user_id=user_id))
+
+        return JsonResponse({'status': 'success', 'message': 'Role successfully updated', 'role_id': role.id}, status=200)
+    except Exception as e:
+        print(f"Eroare in _edit_project_role: {str(e)}")
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
