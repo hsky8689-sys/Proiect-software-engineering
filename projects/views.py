@@ -405,8 +405,7 @@ def request_file_open(request):
 
             requested_access, already_has_access = [], []
             for path in present.keys():
-                resource_access = ResourceAccess.objects.filter(project=project, resource_path=path).first()
-                if resource_access and user in resource_access.allowed_users.all():
+                if TaskResourceAccess.objects.user_has_access_to_path(user, project, path):
                     already_has_access.append(path)
                 else:
                     requested_access.append(path)

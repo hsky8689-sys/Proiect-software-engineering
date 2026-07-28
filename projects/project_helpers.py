@@ -304,7 +304,59 @@ def _edit_project_task(request,id):
             return JsonResponse({'status':'error','message':'Task not found'},status=404)
         if task == []:
             return JsonResponse({'status':'bad request','message':'Task could not be updated'},status=400)
-        return JsonResponse({'status':'success','message':'Task successfully updated','task_id':task.id},status=200)
+
+        usernames = data.get('usernames', None)
+        resource_paths = data.get('resource_paths', None)
+
+        if usernames is not None:
+            valid_new_users = []
+            for username in usernames:
+                target_user = User.objects.filter(username=username).first()
+                if target_user and UserProjectRole.objects.filter(project=project, user=target_user).exists():
+                    valid_new_users.append(target_user)
+            new_users_by_id = {u.id: u for u in valid_new_users}
+
+            current_users_by_id = {
+                p.user_id: p.user
+                for p in ProjectTaskParticipation.objects.filter(task=task).select_related('user')
+                if p.user_id is not None
+            }
+
+            users_to_add = [u for uid, u in new_users_by_id.items() if uid not in current_users_by_id]
+            users_to_remove = [u for uid, u in current_users_by_id.items() if uid not in new_users_by_id]
+
+            if users_to_add:
+                ProjectTaskParticipation.objects.add_task_participations(task, users_to_add)
+            if users_to_remove:
+                ProjectTaskParticipation.objects.remove_task_participations(task, users_to_remove)
+
+        if resource_paths is not None:
+            project_paths = get_project_tree_paths(project)
+            valid_new_paths = set(path for path in resource_paths if path in project_paths)
+
+            current_paths = set(
+                TaskResourceAccess.objects.filter(task=task).values_list('resource_path', flat=True)
+            )
+
+            paths_to_add = valid_new_paths - current_paths
+            paths_to_remove = current_paths - valid_new_paths
+
+            if paths_to_add:
+                TaskResourceAccess.objects.add_resources_to_task(task, list(paths_to_add))
+            if paths_to_remove:
+                TaskResourceAccess.objects.remove_resources_from_task(task, list(paths_to_remove))
+
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Task successfully updated',
+            'task_id': task.id,
+            'affiliated_users': list(
+                ProjectTaskParticipation.objects.filter(task=task).values_list('user__username', flat=True)
+            ),
+            'resource_paths': list(
+                TaskResourceAccess.objects.filter(task=task).values_list('resource_path', flat=True)
+            )
+        }, status=200)
     except Exception as e:
         print(str(e))
         return JsonResponse({'status':'error','message':'Internal server error'},status=500)

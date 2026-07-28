@@ -18,10 +18,10 @@ def generate_app_signing_key():
 
 
 class ProjectManager(models.Manager):
-    def create_project(self, user, name, description, needed_skills=None, github_repos=None):
+    def create_project(self, user_id, name, description, needed_skills=None, github_repos=None):
         """
         Creates a project and automatically sets the given user as owner
-        :param user: The future project creator and owner
+        :param user_id: id of the future project creator and owner
         :param needed_skills: optional dict of {domain_name: [skill_name, ...]} - each
                domain becomes a ProjectRequirementSection, each skill a ProjectSkillRequirement
                under it. Caller is expected to have already validated the shape.
@@ -36,7 +36,7 @@ class ProjectManager(models.Manager):
             return None
         try:
             with transaction.atomic():
-                proj = self.create(owner_id=user, name=name, description=description)
+                proj = self.create(owner_id=user_id, name=name, description=description)
                 default_roles = ProjectRole.objects.create_default_project_roles(proj)
                 if not UserProjectRole.objects.give_role(proj.owner, proj, default_roles[0].id):
                     transaction.set_rollback(True)
@@ -56,7 +56,7 @@ class ProjectManager(models.Manager):
                 if new_repo_stats:
                     created_repo_stats = ProjectRepoStats.objects.bulk_create(new_repo_stats)
                     proj.repo_stats.add(*created_repo_stats)
-            cache_manager.delete(UserCacheKey.PROJECTS.format(user_id=user))
+            cache_manager.delete(UserCacheKey.PROJECTS.format(user_id=user_id))
             return proj
         except django.db.DatabaseError as e:
             print(str(e))
