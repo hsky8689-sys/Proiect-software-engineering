@@ -343,6 +343,15 @@ def request_file_open(request):
         if not files:
             return JsonResponse({'error': 'No files were requested'}, status=400)
 
+        task_id = data.get('task_id')
+        if not task_id:
+            return JsonResponse({'error': 'task_id is required'}, status=400)
+        task = ProjectTask.objects.filter(id=task_id, project=project).first()
+        if task is None:
+            return JsonResponse({'error': 'Task not found in this project'}, status=404)
+        if not ProjectTaskParticipation.objects.filter(task_id=task_id, user=user).exists():
+            return JsonResponse({'error': 'You are not affiliated with this task'}, status=403)
+
         role = UserProjectRole.objects.get_user_role_in_project(project,user)
         if role == 'visitor':
             return JsonResponse({'error': 'User is not part of the project'}, status=403)
@@ -413,7 +422,7 @@ def request_file_open(request):
         if admins is None or len(admins) == 0:
             return JsonResponse({'error':'No admins can respond to this request'},status=401)
 
-        if requested_access and not UserRequest.objects.send_files_access_request(user,project,requested_access,admins):
+        if requested_access and not UserRequest.objects.send_files_access_request(user,project,requested_access,admins,task_id):
             return JsonResponse({'error':'Internal server error'},status=500)
 
         response_payload = {
@@ -597,17 +606,12 @@ def api_assign_users_to_role(request, id):
             return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
         user_role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
 
-        if UserProjectRole.objects.get_role_permissions(user_role, project)['can_change_project_settings']:
+        if UserProjectRole.objects.get_role_permissions(user_role, project)['can_change_roles']:
             data = json.loads(request.body)
             role_id = data.get('role_id')
             usernames = data.get('usernames', [])
 
-            # NOTE: ProjectRole has no `project` field (roles are a shared,
-            # global registry by name, not scoped per project) - the previous
-            # get_object_or_404(ProjectRole, id=role_id, project=project) call
-            # always raised a FieldError, which made this endpoint 500 on
-            # every request. Looking up by id only actually works.
-            target_role = ProjectRole.objects.filter(id=role_id).first()
+            target_role = ProjectRole.objects.filter(id=role_id, project=project).first()
             if target_role is None:
                 return JsonResponse({'status': 'error', 'message': 'Role not found'}, status=404)
 
@@ -840,7 +844,7 @@ def api_handle_project_join_request(request):
             UserProjectRole.objects.create(
                 user=user_req.sender,
                 project=project,
-                role=ProjectRole.objects.get(name='viewer')
+                role=ProjectRole.objects.get(name='viewer', project=project)
             )
             cache_manager.delete(UserCacheKey.PROJECTS.format(user_id=user_req.sender_id))
             cache_manager.delete(ProjectCacheKey.USER_ROLE.format(project_id=project.id, user_id=user_req.sender_id))
@@ -956,7 +960,7 @@ def api_handle_project_invite(request, invite_id):
                         user=invite.receiver,
                         project=project,
                         # see the matching comment in api_handle_project_join_request
-                        role=ProjectRole.objects.get(name='viewer')
+                        role=ProjectRole.objects.get(name='viewer', project=project)
                     )
                     invite.status = 'accepted'
                     invite.save(update_fields=['status'])
@@ -1011,7 +1015,7 @@ def api_leave_project(request, id):
                 if successor_user_id is None:
                     successor_user_id = other_members.order_by('id').first().user_id
 
-                owner_role = ProjectRole.objects.get(name='owner')
+                owner_role = ProjectRole.objects.get(name='owner', project=project)
                 UserProjectRole.objects.filter(project=project, user_id=successor_user_id).update(role=owner_role)
                 cache_manager.delete(ProjectCacheKey.USER_ROLE.format(project_id=project.id, user_id=successor_user_id))
 
@@ -1025,59 +1029,6 @@ def api_leave_project(request, id):
     except Exception as e:
         print(str(e))
         return JsonResponse({'status': 'error', 'message': 'Internal server error'}, status=500)
-
-@login_required
-@require_POST
-@ratelimit(key='user',rate='20/m',block=True)
-def api_request_file_access(request, project_id):
-    try:
-        data = json.loads(request.body)
-        filepath = data.get('filepath')
-
-        if not filepath:
-            return JsonResponse({'status': 'error', 'message': 'Calea fișierului lipsește.'}, status=400)
-
-        project = Project.objects.filter(id=project_id).first()
-        if project is None:
-            return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
-
-        # 1. Găsim adminii proiectului care pot aproba cererea
-        # Adaptează interogarea în funcție de cum e definit rolul de admin la tine
-        project_admins = User.objects.filter(
-            user__project=project,
-            user__role__can_change_project_settings=True
-        ).distinct()
-
-        if not project_admins.exists():
-            return JsonResponse({'status': 'error', 'message': 'Proiectul nu are admini capabili să aprobe.'}, status=404)
-
-        # 2. Creăm cererea de tip 'file_access' pentru admin(i)
-        for admin in project_admins:
-            pending_exists = UserRequest.objects.filter(
-                sender=request.user,
-                receiver=admin,
-                request_type='file_access',
-                project_id=project.id,
-                requested_files=[filepath],
-                status='pending'
-            ).exists()
-            if not pending_exists:
-                UserRequest.objects.create(
-                    sender=request.user,
-                    receiver=admin,
-                    request_type='file_access',
-                    project_id=project.id,
-                    requested_files=[filepath],
-                    target=f'{request.user.username} requested access to {filepath} in {project.name}',
-                    status='pending'
-                )
-
-        return JsonResponse({'status': 'success', 'message': 'Cerere trimisă cu succes!'}, status=200)
-
-    except json.JSONDecodeError:
-        return JsonResponse({'status': 'error', 'message': 'JSON invalid.'}, status=400)
-    except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 @login_required
 @csrf_protect
@@ -1109,11 +1060,22 @@ def api_handle_file_access_request(request):
             user_req.save()
             return JsonResponse({'status': 'success', 'message': 'File access request declined.'}, status=200)
 
-        requested_files = user_req.requested_files or []
-        if not user_req.project_id or not requested_files:
+        requested_files_raw = user_req.requested_files or []
+        if not user_req.project_id or not requested_files_raw:
             user_req.status = 'declined'
             user_req.save()
             return JsonResponse({'status': 'error', 'message': 'No files associated with this request.'}, status=400)
+
+        # requests sent through request_file_open store {'task_id':...,'files':[...]}
+        # (the requester picks the task up front); older requests - or ones sent
+        # through the other file_access endpoint that doesn't ask for a task -
+        # still store a plain list, with no task_id attached.
+        if isinstance(requested_files_raw, dict):
+            task_id = requested_files_raw.get('task_id')
+            requested_files = requested_files_raw.get('files') or []
+        else:
+            task_id = None
+            requested_files = requested_files_raw
 
         project = Project.objects.filter(id=user_req.project_id).first()
         if not project:
@@ -1121,19 +1083,30 @@ def api_handle_file_access_request(request):
             user_req.save()
             return JsonResponse({'status': 'error', 'message': 'Project for this request no longer exists.'}, status=400)
 
-        # TODO: let the responder pick the task; for now we attach the access
-        # to the most recent task the requesting user is already affiliated with.
-        latest_task_id = ProjectTaskParticipation.objects.filter(
-            user_id=sender_id,
-            task__project=project
-        ).aggregate(Max('task_id'))['task_id__max']
+        if task_id and not ProjectTaskParticipation.objects.filter(task_id=task_id, user_id=sender_id).exists():
+            # requester lost their spot on that task since they asked - fall
+            # back to guessing like the legacy (no task_id) path below.
+            task_id = None
 
-        if not latest_task_id:
+        if not task_id:
+            # TODO: let the responder pick the task; for now we attach the access
+            # to the most recent task the requesting user is already affiliated with.
+            task_id = ProjectTaskParticipation.objects.filter(
+                user_id=sender_id,
+                task__project=project
+            ).aggregate(Max('task_id'))['task_id__max']
+
+        if not task_id:
             user_req.status = 'declined'
             user_req.save()
             return JsonResponse({'status': 'error', 'message': 'User is not affiliated with any task in this project.'}, status=400)
 
-        task = ProjectTask.objects.get(id=latest_task_id)
+        task = ProjectTask.objects.filter(id=task_id, project=project).first()
+        if task is None:
+            user_req.status = 'declined'
+            user_req.save()
+            return JsonResponse({'status': 'error', 'message': 'Task not found in this project.'}, status=400)
+
         with transaction.atomic():
             if requested_files:
                 added = TaskResourceAccess.objects.add_resources_to_task(task, requested_files)
@@ -1146,7 +1119,7 @@ def api_handle_file_access_request(request):
         return JsonResponse({
             'status': 'success',
             'message': 'File access request accepted.',
-            'task_id': latest_task_id,
+            'task_id': task_id,
             'files': requested_files
         }, status=200)
     except json.JSONDecodeError:

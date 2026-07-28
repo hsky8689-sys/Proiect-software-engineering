@@ -18,15 +18,6 @@ def generate_app_signing_key():
 
 
 class ProjectManager(models.Manager):
-    def makeNewOwner(self, project):
-        """
-
-        :param project:
-        :return:
-        """
-        if User.objects.get(project.owner_id) is not None:
-            raise ValueError("The owner didnt delete his account")
-
     def create_project(self, user, name, description, needed_skills=None, github_repos=None):
         """
         Creates a project and automatically sets the given user as owner
@@ -47,7 +38,7 @@ class ProjectManager(models.Manager):
             with transaction.atomic():
                 proj = self.create(owner_id=user, name=name, description=description)
                 default_roles = ProjectRole.objects.create_default_project_roles(proj)
-                if not UserProjectRole.objects.give_role(proj.owner, proj, default_roles[0][0].id):
+                if not UserProjectRole.objects.give_role(proj.owner, proj, default_roles[0].id):
                     transaction.set_rollback(True)
                     return None
                 for domain_name, skill_names in (needed_skills or {}).items():
@@ -275,32 +266,23 @@ class ProjectRoleManager(models.Manager):
                 from devnetwork.settings import DEFAULT_PROJECT_ROLES
                 created_roles = []
                 for role_name, role_permissions in DEFAULT_PROJECT_ROLES.items():
-                    role = ProjectRole.objects.get_or_create(
-                        name=role_name,
-                        defaults=role_permissions
-                    )
+                    role = self.create(project=project, name=role_name, **role_permissions)
                     created_roles.append(role)
                 return created_roles
         except django.db.Error as e:
             print(str(e))
             return []
 
-    def modify_project_role(self, project, form):
-        try:
-            print('todo')
-        except django.db.Error as e:
-            print(str(e))
-        except Exception as ex:
-            print(str(ex))
     def get_project_roles(self,project):
         try:
-            return self.filter(role__project=project).distinct()
+            return self.filter(project=project)
         except django.db.Error as e:
             print(str(e))
             return []
 
 
 class ProjectRole(models.Model):
+    project = models.ForeignKey('Project', on_delete=models.CASCADE, related_name='project_roles')
     name = models.CharField(max_length=50, default='new role', null=False, blank=True)
     can_accept_invites = models.BooleanField(default=False)
     can_invite_others = models.BooleanField(default=False)
@@ -324,13 +306,6 @@ class ProjectRole(models.Model):
 
 
 class UserProjectRoleManager(models.Manager):
-    def make_new_owner(self, project):
-        """
-
-        :param project:
-        :return:
-        """
-
     def give_role(self, user, project, role):
         try:
             with transaction.atomic():

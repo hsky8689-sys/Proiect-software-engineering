@@ -359,7 +359,7 @@ class ProjectConversationsTests(TestCase):
         self.outsider = make_user('chatuser_notmember')
 
         self.project = Project.objects.create_project(self.owner.id, f'chatproj_{secrets.token_hex(4)}', 'a project')
-        developer_role = ProjectRole.objects.get(name='developer')
+        developer_role = ProjectRole.objects.get(name='developer', project=self.project)
         UserProjectRole.objects.give_role_to_user(self.project.id, self.member.id, developer_role)
 
     @staticmethod

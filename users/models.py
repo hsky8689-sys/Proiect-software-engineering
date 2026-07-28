@@ -491,7 +491,7 @@ class RequestManager(models.Manager):
     def send_project_invitation(self,sender,receiver):
         print('te rog')#e mecanic...il fac alta data...
 
-    def send_files_access_request(self,user,project,requested_access,valid_admins):
+    def send_files_access_request(self,user,project,requested_access,valid_admins,task_id):
         try:
             with transaction.atomic():
                 return self.bulk_create(
@@ -500,7 +500,7 @@ class RequestManager(models.Manager):
                                  status='pending',
                                  receiver_id=admin.id,
                                  project_id=project.id,
-                                 requested_files=requested_access,
+                                 requested_files={'task_id': task_id, 'files': requested_access},
                                  target='{} requested access to {} file(s) in {}'.format(
                                      user.username,len(requested_access),project.name),
                                  ) for admin in valid_admins]

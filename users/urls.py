@@ -1,6 +1,5 @@
 from django.urls import path
 
-from projects.views import api_request_file_access
 from users.views import signup_page, acces_profile, api_add_skill, api_delete_skill, search_page, \
     search_api, create_project, api_friend_requests, connections_page, api_friend_request_detail, \
     api_remove_friend, logout_page, provide_csrf_token, api_add_techstack_section, api_delete_techstack_section, \
@@ -24,7 +23,6 @@ urlpatterns = [
     path('search/api', search_api, name='search_api'),
     path('project-creation',create_project,name='create_project'),
     path('connections-page',connections_page,name='view_connections'),
-    path('api/projects/<int:project_id>/request-file', api_request_file_access, name='request_file_access'),
     path('friend-requests',api_friend_requests,name='friend-requests'),
     path('friend-requests/<int:id>',api_friend_request_detail,name='friend-request-detail'),
     path('<int:removed>/friendship',api_remove_friend,name='remove_friend'),

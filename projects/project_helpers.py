@@ -367,26 +367,38 @@ def _add_project_role(request, id):
             can_kick_others = data.get('can_kick_others', False)
             can_change_roles = data.get('can_change_roles', False)
             can_create_branches = data.get('can_create_branches', False)
+            can_modify_branches = data.get('can_modify_branches', False)
             can_merge_branches = data.get('can_merge_branches', False)
             can_delete_branches = data.get('can_delete_branches', False)
             can_add_tasks = data.get('can_add_tasks', False)
             can_delete_tasks = data.get('can_delete_tasks', False)
             can_modify_tasks = data.get('can_modify_tasks', False)
+            can_modify_files = data.get('can_modify_files', False)
+            can_execute_code = data.get('can_execute_code', False)
+            can_share_file_access = data.get('can_share_file_access', False)
             can_change_project_settings = data.get('can_change_project_settings', False)
-            if can_accept_invites and can_invite_others and can_kick_others and can_change_roles and can_create_branches and can_merge_branches and can_delete_branches and can_add_tasks and can_modify_tasks and can_delete_tasks and can_change_project_settings:
+            if (can_accept_invites and can_invite_others and can_kick_others and can_change_roles
+                    and can_create_branches and can_modify_branches and can_merge_branches and can_delete_branches
+                    and can_add_tasks and can_modify_tasks and can_delete_tasks and can_modify_files
+                    and can_execute_code and can_share_file_access and can_change_project_settings):
                 return JsonResponse({'error':'Cannot recreate the owner role'},status=403)
             new_role = ProjectRole.objects.create(
+                project=project,
                 name=data.get('name'),
                 can_accept_invites=can_accept_invites,
                 can_invite_others=can_invite_others,
                 can_kick_others=can_kick_others,
                 can_change_roles=can_change_roles,
                 can_create_branches=can_create_branches,
+                can_modify_branches=can_modify_branches,
                 can_merge_branches=can_merge_branches,
                 can_delete_branches=can_delete_branches,
                 can_add_tasks=can_add_tasks,
                 can_delete_tasks=can_delete_tasks,
                 can_modify_tasks=can_modify_tasks,
+                can_modify_files=can_modify_files,
+                can_execute_code=can_execute_code,
+                can_share_file_access=can_share_file_access,
                 can_change_project_settings=can_change_project_settings
             )
             return JsonResponse({'status': 'success', 'role_id': new_role.id}, status=200)
@@ -412,7 +424,7 @@ def _edit_project_role(request, id):
         if not role_id:
             return JsonResponse({'status': 'bad request', 'message': 'role_id is required'}, status=400)
 
-        role = ProjectRole.objects.filter(id=role_id).first()
+        role = ProjectRole.objects.filter(id=role_id, project=project).first()
         if role is None:
             return JsonResponse({'status': 'error', 'message': 'Role not found'}, status=404)
 

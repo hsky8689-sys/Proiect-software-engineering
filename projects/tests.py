@@ -280,7 +280,7 @@ class ProjectMembershipMixin:
         self.outsider = make_user('projvisitor')
 
         self.project = Project.objects.create_project(self.owner.id, f'crudproj_{secrets.token_hex(4)}', 'a project')
-        developer_role = ProjectRole.objects.get(name='developer')
+        developer_role = ProjectRole.objects.get(name='developer', project=self.project)
         UserProjectRole.objects.give_role_to_user(self.project.id, self.member.id, developer_role)
 
 
@@ -695,8 +695,9 @@ class ProjectRolesCrudTests(ProjectMembershipMixin, TestCase):
         response = self._post(self.project.id, self._new_role_payload(
             name='SuperOwner',
             can_accept_invites=True, can_invite_others=True, can_kick_others=True, can_change_roles=True,
-            can_create_branches=True, can_merge_branches=True, can_delete_branches=True, can_add_tasks=True,
-            can_delete_tasks=True, can_modify_tasks=True, can_change_project_settings=True,
+            can_create_branches=True, can_modify_branches=True, can_merge_branches=True, can_delete_branches=True,
+            can_add_tasks=True, can_delete_tasks=True, can_modify_tasks=True, can_modify_files=True,
+            can_execute_code=True, can_share_file_access=True, can_change_project_settings=True,
         ))
         self.assertEqual(response.status_code, 403)
         self.assertFalse(ProjectRole.objects.filter(name='SuperOwner').exists())
@@ -1171,7 +1172,7 @@ class ProjectLeaveTests(ProjectMembershipMixin, TestCase):
 
     def test_owner_leaving_transfers_ownership_to_most_active_pusher(self):
         active_member = make_user('projactive')
-        developer_role = ProjectRole.objects.get(name='developer')
+        developer_role = ProjectRole.objects.get(name='developer', project=self.project)
         UserProjectRole.objects.give_role_to_user(self.project.id, active_member.id, developer_role)
         AuditLogAction.objects.log_action(self.project, active_member, 'push')
 
@@ -1223,12 +1224,12 @@ class ProjectLeaveTests(ProjectMembershipMixin, TestCase):
         self.member joins each as a plain 'developer' member instead, which
         can always leave unconditionally.
         """
-        developer_role = ProjectRole.objects.get(name='developer')
         projects = [
             Project.objects.create_project(self.owner.id, f'leaverl_{i}_{secrets.token_hex(4)}', 'd')
             for i in range(21)
         ]
         for proj in projects:
+            developer_role = ProjectRole.objects.get(name='developer', project=proj)
             UserProjectRole.objects.give_role_to_user(proj.id, self.member.id, developer_role)
 
         self.client.force_login(self.member)
@@ -1336,7 +1337,7 @@ class Judge0ApiTests(TestCase):
 
     def test_member_without_can_execute_code_permission_is_rejected(self):
         member = make_user('projmember')
-        developer_role = ProjectRole.objects.get(name='developer')  # can_execute_code=False by default
+        developer_role = ProjectRole.objects.get(name='developer', project=self.project)  # can_execute_code=False by default
         UserProjectRole.objects.give_role_to_user(self.project.id, member.id, developer_role)
 
         with patch('projects.views.requests.post') as mock_post:
@@ -1726,7 +1727,7 @@ class GithubBranchActionTests(TestCase):
             github_repo_name='widgets', github_repo_link='https://github.com/acme/widgets', github_token=''
         )
         self.project.repo_stats.add(self.repo_stat)
-        developer_role = ProjectRole.objects.get(name='developer')
+        developer_role = ProjectRole.objects.get(name='developer', project=self.project)
         UserProjectRole.objects.give_role_to_user(self.project.id, self.member.id, developer_role)
 
     @staticmethod
@@ -1775,7 +1776,7 @@ class GithubBranchActionTests(TestCase):
     def test_non_privileged_member_cannot_add_a_branch(self):
         """'developer' has can_create_branches=True, so use a role without it - viewer."""
         viewer = make_user('projviewer')
-        viewer_role = ProjectRole.objects.get(name='viewer')
+        viewer_role = ProjectRole.objects.get(name='viewer', project=self.project)
         UserProjectRole.objects.give_role_to_user(self.project.id, viewer.id, viewer_role)
 
         with patch('projects.github_utils.requests.post') as mock_post:
@@ -1820,7 +1821,7 @@ class GithubBranchActionTests(TestCase):
 
     def test_non_privileged_member_cannot_rename_a_branch(self):
         viewer = make_user('projviewer')
-        viewer_role = ProjectRole.objects.get(name='viewer')
+        viewer_role = ProjectRole.objects.get(name='viewer', project=self.project)
         UserProjectRole.objects.give_role_to_user(self.project.id, viewer.id, viewer_role)
 
         with patch('projects.github_utils.requests.post') as mock_post:
@@ -1940,7 +1941,7 @@ class GithubMergeBranchesTests(TestCase):
 
     def test_non_privileged_member_cannot_merge(self):
         member = make_user('projmember')
-        developer_role = ProjectRole.objects.get(name='developer')  # can_merge_branches=False
+        developer_role = ProjectRole.objects.get(name='developer', project=self.project)  # can_merge_branches=False
         UserProjectRole.objects.give_role_to_user(self.project.id, member.id, developer_role)
 
         with patch('projects.views.requests.post') as mock_post:
@@ -1986,7 +1987,7 @@ class ProjectRepositoryLinkingTests(TestCase):
         self.member = make_user('projmember')
         self.outsider = make_user('projvisitor')
         self.project = Project.objects.create_project(self.owner.id, f'repolinkproj_{secrets.token_hex(4)}', 'd')
-        developer_role = ProjectRole.objects.get(name='developer')  # can_change_project_settings=False
+        developer_role = ProjectRole.objects.get(name='developer', project=self.project)  # can_change_project_settings=False
         UserProjectRole.objects.give_role_to_user(self.project.id, self.member.id, developer_role)
 
     @staticmethod
@@ -2360,7 +2361,7 @@ class PushFilesTests(TestCase):
         self.member = make_user('projmember')
         self.outsider = make_user('projvisitor')
         self.project = Project.objects.create_project(self.owner.id, f'pushfilesproj_{secrets.token_hex(4)}', 'd')
-        developer_role = ProjectRole.objects.get(name='developer')
+        developer_role = ProjectRole.objects.get(name='developer', project=self.project)
         UserProjectRole.objects.give_role_to_user(self.project.id, self.member.id, developer_role)
         self.repo_stat = ProjectRepoStats.objects.create(
             github_repo_name='widgets', github_repo_link='https://github.com/acme/widgets', github_token='ghp_token'
