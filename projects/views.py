@@ -63,6 +63,7 @@ def open_project_page(request,name):
         role_name: [{'id': u.id, 'username': u.username} for u in users]
         for role_name, users in staff.items()
     }
+    role_ids_by_name = dict(ProjectRole.objects.filter(project=project).values_list('name', 'id'))
     context_data = {
         'role': user_role,
         'user_id': request.user.id,
@@ -77,6 +78,7 @@ def open_project_page(request,name):
         'branches':branches,
         'requirements':project_requirements,
         'roles': list(staff.keys()),
+        'role_ids': role_ids_by_name,
         'domains':list(project_domains),
         'description':project.description,
         'visitor_permissions':visitor_permissions,
@@ -355,8 +357,6 @@ def request_file_open(request):
         role = UserProjectRole.objects.get_user_role_in_project(project,user)
         if role == 'visitor':
             return JsonResponse({'error': 'User is not part of the project'}, status=403)
-        if not UserProjectRole.objects.get_role_permissions(role, project)['can_execute_code']:
-            return JsonResponse({'error': 'User is part of the project but cannot run code'}, status=403)
 
         def find_files_from_project(project, requested_files):
             """
@@ -526,7 +526,7 @@ def push_files(request):
                     'error': 'some files are locked by another user',
                     'locked_files': locked_by_others
                 }, status=423)
-        message = f'[Pushed via GitSync]:{default_msg}'
+        message = f'[Pushed via SentinelFlow]:{default_msg}'
         project_obj = Project.objects.filter(id=project).first()
         if project_obj is None:
             return JsonResponse({'error': 'Project not found'}, status=404)
