@@ -9,7 +9,7 @@ from django.http import JsonResponse
 
 from devnetwork import settings
 from devnetwork.caching import cache_manager, ProjectCacheKey
-from projects.models import Project, UserProjectRole, ProjectRepoStats
+from projects.models import Project, UserProjectRole, ProjectRepoStats, ProjectTask, TaskResourceAccess, ResourceAccess
 
 
 def register_github_webhook(owner, repo, project, token):
@@ -227,14 +227,113 @@ def _delete_project_repository(request,id):
         repo_stat = project.repo_stats.filter(id=repo_id).first()
         if repo_stat is None:
             return JsonResponse({'status':'bad request','message':'repository not linked to this project'},status=404)
+
+        # resource_path/task_resource_access aren't namespaced by repo, so the
+        # only way to know which granted paths belonged to THIS repo is to
+        # read its tree before the link (and its token) are gone.
+        revoked_task_access = []
+        revoked_locks = []
+        tree_reachable = False
+        owner, repo = get_project_owner_repo_from_link(repo_stat.github_repo_link)
+        if owner and repo:
+            tree_by_path, _ = fetch_github_tree_with_sizes(owner, repo)
+            if tree_by_path:
+                tree_reachable = True
+                repo_paths = set(tree_by_path.keys())
+                task_ids = ProjectTask.objects.filter(project=project).values_list('id', flat=True)
+                stale_task_access = TaskResourceAccess.objects.filter(
+                    task_id__in=task_ids, resource_path__in=repo_paths
+                )
+                revoked_task_access = list(stale_task_access.values('task_id', 'resource_path'))
+                stale_task_access.delete()
+
+                stale_locks = ResourceAccess.objects.filter(project=project, resource_path__in=repo_paths)
+                revoked_locks = list(stale_locks.values_list('resource_path', flat=True))
+                stale_locks.delete()
+
         if repo_stat.protected_branch:
             revert_branch_protection(repo_stat)
         project.repo_stats.remove(repo_stat)
         cache_manager.delete(ProjectCacheKey.REPOS.format(project_id=project.id))
-        return JsonResponse({'status':'success','message':'Repository removed from project'},status=200)
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Repository removed from project',
+            'resource_cleanup_performed': tree_reachable,
+            'revoked_task_access': revoked_task_access,
+            'revoked_locks': revoked_locks
+        }, status=200)
     except Exception as e:
         print(str(e))
         return JsonResponse({'status': 'error', 'message': 'Internal server error'},status=500)
+def _edit_project_repository(request,id):
+    try:
+        project = Project.objects.filter(id=id).first()
+        if project is None:
+            return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
+        role = UserProjectRole.objects.get_user_role_in_project(project,request.user)
+        if not UserProjectRole.objects.get_role_permissions(role,project)['can_change_project_settings']:
+            return JsonResponse({'status':'Unauthorized access'},status=403)
+        data = json.loads(request.body)
+        repo_id = data.get('repo_id')
+        if not repo_id:
+            return JsonResponse({'status':'bad request','message':'repo_id is required'},status=400)
+        repo_stat = project.repo_stats.filter(id=repo_id).first()
+        if repo_stat is None:
+            return JsonResponse({'status':'bad request','message':'repository not linked to this project'},status=404)
+
+        new_name = data.get('github_repo_name')
+        new_link = data.get('github_repo_link')
+        new_token = data.get('github_token')
+        if new_name is None and new_link is None and new_token is None:
+            return JsonResponse({'status':'bad request','message':'nothing to update'},status=400)
+
+        # changing the link points this repo_stat at a genuinely different
+        # repo - anything granted against the OLD repo's files (task access,
+        # locks) is meaningless now, and the old branch protection/webhook
+        # belong to a repo we're about to stop tracking.
+        link_changed = new_link is not None and new_link != repo_stat.github_repo_link
+        response_extra = {}
+
+        if link_changed:
+            old_owner, old_repo = get_project_owner_repo_from_link(repo_stat.github_repo_link)
+            if old_owner and old_repo:
+                tree_by_path, _ = fetch_github_tree_with_sizes(old_owner, old_repo)
+                if tree_by_path:
+                    old_paths = set(tree_by_path.keys())
+                    task_ids = ProjectTask.objects.filter(project=project).values_list('id', flat=True)
+                    TaskResourceAccess.objects.filter(task_id__in=task_ids, resource_path__in=old_paths).delete()
+                    ResourceAccess.objects.filter(project=project, resource_path__in=old_paths).delete()
+            if repo_stat.protected_branch:
+                revert_branch_protection(repo_stat)
+
+        if new_name is not None:
+            repo_stat.github_repo_name = new_name
+        if new_token is not None:
+            repo_stat.github_token = new_token
+        if new_link is not None:
+            repo_stat.github_repo_link = new_link
+        repo_stat.save()
+
+        if link_changed:
+            new_owner, new_repo = get_project_owner_repo_from_link(repo_stat.github_repo_link)
+            webhook_registered = False
+            branch_protection_applied = False
+            if new_owner and new_repo:
+                webhook_registered = register_github_webhook(new_owner, new_repo, project, repo_stat.github_token)
+                if project.can_only_modify_from_app:
+                    branch_protection_applied = apply_branch_protection(new_owner, new_repo, repo_stat.github_token, repo_stat)
+            response_extra = {'webhook_registered': webhook_registered, 'branch_protection_applied': branch_protection_applied}
+
+        cache_manager.delete(ProjectCacheKey.REPOS.format(project_id=project.id))
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Repository updated',
+            'repo_id': repo_stat.id,
+            **response_extra
+        }, status=200)
+    except Exception as e:
+        print(str(e))
+        return JsonResponse({'status': 'error', 'message': 'Internal server error'}, status=500)
 def _get_project_push_policy(request,id):
     try:
         project = Project.objects.filter(id=id).first()
@@ -298,8 +397,8 @@ def _clear_flagged_external_push(request,id):
     except Exception as e:
         print(str(e))
         return JsonResponse({'status': 'error', 'message': 'Internal server error'}, status=500)
-def get_project_owner_repo(project):
-    repo_stat = project.repo_stats.first()
+def get_project_owner_repo(project, repo_id=None):
+    repo_stat = project.repo_stats.filter(id=repo_id).first() if repo_id else project.repo_stats.first()
     if repo_stat is None:
         return None, None
     root_link_parts = repo_stat.github_repo_link.split('/')
@@ -307,8 +406,8 @@ def get_project_owner_repo(project):
         return None, None
     return root_link_parts[3], root_link_parts[4]
 
-def get_project_repo_token(project):
-    repo_stat = project.repo_stats.first()
+def get_project_repo_token(project, repo_id=None):
+    repo_stat = project.repo_stats.filter(id=repo_id).first() if repo_id else project.repo_stats.first()
     return repo_stat.github_token if repo_stat else None
 
 def get_repo_token(owner, repo):
@@ -490,9 +589,9 @@ def get_all_github_repo_branches(owner,repo):
     except Exception as e:
         print(str(e))
         return []
-def add_new_branch_to_repo(project,new_branch_name=None):
+def add_new_branch_to_repo(project,new_branch_name=None,repo_id=None):
     try:
-        owner,repo = get_project_owner_repo(project)
+        owner,repo = get_project_owner_repo(project,repo_id)
         if not all([owner,repo]):
             return JsonResponse({'status': 'bad request',
                                       'message': 'Internal server error'}, status=403)
@@ -503,7 +602,7 @@ def add_new_branch_to_repo(project,new_branch_name=None):
         default_branch_name = get_default_branch(owner,repo)
         master_branch_sha = get_branch_sha(owner,repo,default_branch_name)
         headers = {"Accept": "application/vnd.github+json"}
-        token = get_project_repo_token(project)
+        token = get_project_repo_token(project,repo_id)
         if token:
             headers["Authorization"] = f"token {token}"
         data = {
@@ -523,13 +622,14 @@ def modify_branch_from_repo(project,data):
     try:
         old_name = data.get('branch_name')
         new_name = data.get('new_name')
+        repo_id = data.get('repo_id')
         if not old_name or not new_name:
             return JsonResponse({'status':'bad request','message':'branch_name and new_name are required'},status=400)
-        owner,repo = get_project_owner_repo(project)
+        owner,repo = get_project_owner_repo(project,repo_id)
         if not all([owner,repo]):
             return JsonResponse({'status': 'bad request','message': 'Internal server error'}, status=403)
         headers = {"Accept": "application/vnd.github+json"}
-        token = get_project_repo_token(project)
+        token = get_project_repo_token(project,repo_id)
         if token:
             headers["Authorization"] = f"token {token}"
         url = f"https://api.github.com/repos/{owner}/{repo}/branches/{old_name}/rename"
@@ -543,16 +643,17 @@ def modify_branch_from_repo(project,data):
 def delete_branch_from_repo(project,data):
     try:
         branch_name = data.get('branch_name')
+        repo_id = data.get('repo_id')
         if not branch_name:
             return JsonResponse({'status':'bad request','message':'branch_name is required'},status=400)
-        owner,repo = get_project_owner_repo(project)
+        owner,repo = get_project_owner_repo(project,repo_id)
         if not all([owner,repo]):
             return JsonResponse({'status': 'bad request','message': 'Internal server error'}, status=403)
         default_branch_name = get_default_branch(owner,repo)
         if branch_name == default_branch_name:
             return JsonResponse({'status':'bad request','message':'Cannot delete the default branch'},status=400)
         headers = {"Accept": "application/vnd.github+json"}
-        token = get_project_repo_token(project)
+        token = get_project_repo_token(project,repo_id)
         if token:
             headers["Authorization"] = f"token {token}"
         url = f"https://api.github.com/repos/{owner}/{repo}/git/refs/heads/{branch_name}"

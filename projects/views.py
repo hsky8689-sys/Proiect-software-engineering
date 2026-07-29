@@ -18,14 +18,16 @@ from devnetwork.caching import cache_manager, UserCacheKey, ProjectCacheKey
 from projects.github_utils import get_project_owner_repo_from_link, get_project_owner_repo, get_project_repo_token, \
     get_repo_token, fetch_github_tree_with_sizes, get_project_tree_paths, invalidate_repo_cache, get_default_branch, \
     get_all_github_repo_branches, add_new_branch_to_repo, modify_branch_from_repo, delete_branch_from_repo, \
-    verify_github_signature, commit_was_pushed_from_app, _add_project_repository, _delete_project_repository, \
+    verify_github_signature, commit_was_pushed_from_app, _add_project_repository, _edit_project_repository, \
+    _delete_project_repository, \
     _get_project_push_policy, _set_project_push_policy, _clear_flagged_external_push, get_project_repo_summaries, \
     user_has_access_to_github_repo
 from projects.project_helpers import get_user_file_permissions, _get_project_domains, _add_project_domains, \
     _delete_project_domains, _get_project_requirements, _add_project_requirements, _remove_project_requirements, \
     _remove_project_sections, _add_project_sections, _get_project_tasks, _add_project_task, _remove_project_tasks, \
     _edit_project_task, \
-    _get_project_roles, _add_project_role, _edit_project_role
+    _get_project_roles, _add_project_role, _edit_project_role, _delete_project_role, \
+    _edit_project_details
 from projects.models import Project, UserProjectRole, ProjectDomain, \
     ProjectTask, ProjectRole, ResourceAccess, TaskResourceAccess, ProjectTaskParticipation, ProjectRepoStats, \
     AuditLogAction, ProjectSkillRequirement
@@ -138,12 +140,14 @@ def api_project_domains(request,id):
             return _delete_project_domains(request,id)
 @login_required
 @csrf_protect
-@require_http_methods(["POST","DELETE"])
+@require_http_methods(["POST","PATCH","DELETE"])
 @ratelimit(key='user',rate='30/m',block=True)
 def api_handle_project_repositories(request,id):
     match request.method:
         case "POST":
             return _add_project_repository(request,id)
+        case "PATCH":
+            return _edit_project_repository(request,id)
         case "DELETE":
             return _delete_project_repository(request,id)
         case _:
@@ -581,10 +585,11 @@ def push_files(request):
 
 @login_required
 @csrf_protect
-@require_http_methods(["GET","POST","PATCH"])
+@require_http_methods(["GET","POST","PATCH","DELETE"])
 @ratelimit(key='user',rate='120/m',method='GET',block=True)
 @ratelimit(key='user',rate='20/m',method='POST',block=True)
 @ratelimit(key='user',rate='20/m',method='PATCH',block=True)
+@ratelimit(key='user',rate='20/m',method='DELETE',block=True)
 def api_project_roles(request, id):
     match request.method:
         case "GET":
@@ -593,6 +598,8 @@ def api_project_roles(request, id):
             return _add_project_role(request, id)
         case "PATCH":
             return _edit_project_role(request, id)
+        case "DELETE":
+            return _delete_project_role(request, id)
 
 @login_required
 @csrf_protect
@@ -661,6 +668,13 @@ def api_get_role_permissions(request, id):
     except Exception as e:
         print(f"Eroare in api_get_role_permissions: {str(e)}")
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+@login_required
+@csrf_protect
+@require_http_methods(["PATCH"])
+@ratelimit(key='user',rate='20/m',block=True)
+def api_edit_project_details(request, id):
+    return _edit_project_details(request, id)
 
 @login_required
 @csrf_protect
@@ -1031,6 +1045,35 @@ def api_leave_project(request, id):
 
 @login_required
 @csrf_protect
+@require_http_methods(["DELETE"])
+@ratelimit(key='user',rate='10/m',block=True)
+def api_delete_project(request, id):
+    try:
+        project = Project.objects.filter(id=id).first()
+        if project is None:
+            return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
+
+        # deliberately the role, not project.owner_id: ownership succession
+        # (api_leave_project) only ever updates the 'owner' UserProjectRole,
+        # it never touches Project.owner - the role is the current source of truth.
+        role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
+        if role != 'owner':
+            return JsonResponse({'status': 'Unauthorized access'}, status=403)
+
+        project_id = project.id
+        deleted = Project.objects.delete_project(project)
+        if not deleted:
+            return JsonResponse({'status': 'error', 'message': 'Project could not be deleted'}, status=500)
+
+        cache_manager.delete(ProjectCacheKey.REPOS.format(project_id=project_id))
+        cache_manager.delete(UserCacheKey.PROJECTS.format(user_id=request.user.id))
+        return JsonResponse({'status': 'success', 'message': 'Project deleted'}, status=200)
+    except Exception as e:
+        print(str(e))
+        return JsonResponse({'status': 'error', 'message': 'Internal server error'}, status=500)
+
+@login_required
+@csrf_protect
 @require_POST
 @ratelimit(key='user',rate='20/m',block=True)
 def api_handle_file_access_request(request):
@@ -1266,7 +1309,11 @@ def api_github_handle_branch_action(request,id):
         case "POST":
             if not visitor_permissions['can_create_branches']:
                 return JsonResponse({'status': 'Unauthorized access'}, status=403)
-            return add_new_branch_to_repo(project)
+            try:
+                data = json.loads(request.body) if request.body else {}
+            except json.JSONDecodeError:
+                data = {}
+            return add_new_branch_to_repo(project, data.get('branch_name'), data.get('repo_id'))
         case "PUT":
             data = json.loads(request.body)
             if not visitor_permissions['can_modify_branches']:
@@ -1288,19 +1335,20 @@ def api_merge_github_branches(request,id):
         project = Project.objects.filter(id=id).first()
         if project is None:
             return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
-        owner,repo = get_project_owner_repo(project)
         user_role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
         visitor_permissions = UserProjectRole.objects.get_role_permissions(user_role, project)
         if not visitor_permissions['can_merge_branches']:
             return JsonResponse({'status': 'Unauthorized access'}, status=403)
-        url = f'https://api.github.com/repos/{owner}/{repo}/merges'
-        headers = {"Accept": "application/vnd.github+json"}
-        token = get_project_repo_token(project)
-        if token:
-            headers["Authorization"] = f"token {token}"
         data = json.loads(request.body)
         base = data.get('base')
         head = data.get('head')
+        repo_id = data.get('repo_id')
+        owner,repo = get_project_owner_repo(project,repo_id)
+        url = f'https://api.github.com/repos/{owner}/{repo}/merges'
+        headers = {"Accept": "application/vnd.github+json"}
+        token = get_project_repo_token(project,repo_id)
+        if token:
+            headers["Authorization"] = f"token {token}"
         if not all([base,head]):
             return JsonResponse({
                       'status': 'bad request',

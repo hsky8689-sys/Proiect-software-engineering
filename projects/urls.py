@@ -3,12 +3,13 @@ from django.urls import path
 from projects.views import open_project_page, open_project_members_page, open_project_settings, \
     api_project_domains, api_project_requirements, api_project_requirement_sections, api_project_tasks, \
     api_project_roles, api_assign_users_to_role, api_kick_users_from_project, api_get_role_permissions, \
+    api_edit_project_details, \
     github_proxy_view, proxy_run_code, push_files, \
     api_get_availible_languages, api_request_project_join, api_handle_project_join_request, request_file_open, \
     api_handle_file_access_request, api_request_file_share, api_handle_request_file_share, \
     api_github_get_all_repo_branches, api_github_handle_branch_action, api_merge_github_branches, webhook_github, \
     api_handle_project_repositories, api_project_push_policy, \
-    api_invite_to_project, api_handle_project_invite, api_leave_project
+    api_invite_to_project, api_handle_project_invite, api_leave_project, api_delete_project
 
 app_name = 'projects'
 
@@ -25,6 +26,7 @@ urlpatterns = [
     path("settings/<int:id>/kick", api_kick_users_from_project, name="kick-users"),
     path("settings/<int:id>/role-permissions", api_get_role_permissions, name="role-permissions"),
     path("settings/<int:id>/push-policy", api_project_push_policy, name="project-push-policy"),
+    path("settings/<int:id>/details", api_edit_project_details, name="edit-project-details"),
     path('api/github/branches',api_github_get_all_repo_branches,name='get-all-repo-branches'),
     path('api/github/<int:id>/branches',api_github_handle_branch_action,name='add-branch-on-github-repo'),
     path('api/code',proxy_run_code,name='run-code'),
@@ -36,6 +38,7 @@ urlpatterns = [
     path('settings/<int:id>/invitation',api_invite_to_project,name='invite-to-project'),
     path('invites/<int:invite_id>',api_handle_project_invite,name='handle-project-invite'),
     path('<int:id>/project-exit',api_leave_project,name='leave-project'),
+    path('<int:id>/delete',api_delete_project,name='delete-project'),
     path('api/requests/file-access/handle',api_handle_file_access_request,name='handle-file-access-request'),
     path('api/requests/file-writers',api_request_file_share,name='request-file-share'),
     path('api/requests/file-writers/handle',api_handle_request_file_share,name='handle-request-file-share'),

@@ -1,5 +1,7 @@
 import json
 import django.db
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_slug
 from django.db import transaction
 from django.http import JsonResponse
 from devnetwork.caching import cache_manager, ProjectCacheKey
@@ -7,6 +9,51 @@ from projects.github_utils import get_project_tree_paths
 from projects.models import Project, UserProjectRole, ProjectDomain, ProjectSkillRequirement, \
     ProjectRequirementSection, ProjectTask, ProjectRole, TaskResourceAccess, ProjectTaskParticipation
 from users.models import User
+
+def _edit_project_details(request, id):
+    try:
+        project = Project.objects.filter(id=id).first()
+        if project is None:
+            return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
+        role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
+        if not UserProjectRole.objects.get_role_permissions(role, project)['can_change_project_settings']:
+            return JsonResponse({'status': 'Unauthorized access'}, status=403)
+
+        data = json.loads(request.body)
+        new_name = data.get('name')
+        new_description = data.get('description')
+        if new_name is None and new_description is None:
+            return JsonResponse({'status': 'bad request', 'message': 'name or description is required'}, status=400)
+
+        update_fields = []
+        if new_name is not None:
+            try:
+                validate_slug(new_name)
+            except ValidationError:
+                return JsonResponse({
+                    'status': 'bad request',
+                    'message': 'Project name must only contain letters, numbers, underscores or hyphens'
+                }, status=400)
+            if Project.objects.filter(name=new_name).exclude(id=project.id).exists():
+                return JsonResponse({'status': 'bad request', 'message': 'Project name is already used'}, status=400)
+            project.name = new_name
+            update_fields.append('name')
+        if new_description is not None:
+            if len(new_description) > 5000:
+                return JsonResponse({'status': 'bad request', 'message': 'Description is too long'}, status=400)
+            project.description = new_description
+            update_fields.append('description')
+
+        project.save(update_fields=update_fields)
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Project updated',
+            'name': project.name,
+            'description': project.description
+        }, status=200)
+    except Exception as e:
+        print(str(e))
+        return JsonResponse({'status': 'error', 'message': 'Internal server error'}, status=500)
 
 def get_user_file_permissions(user,project):
     try:
@@ -404,7 +451,7 @@ def _get_project_roles(request, id):
     except Project.DoesNotExist:
         return JsonResponse({'status': 'Project not found'}, status=404)
     except Exception as e:
-        print(f"Eroare in api_get_project_roles: {str(e)}")
+        print(f"Error in api_get_project_roles: {str(e)}")
         return JsonResponse({'status': 'error'}, status=500)
 def _add_project_role(request, id):
     try:
@@ -516,4 +563,47 @@ def _edit_project_role(request, id):
         return JsonResponse({'status': 'success', 'message': 'Role successfully updated', 'role_id': role.id}, status=200)
     except Exception as e:
         print(f"Eroare in _edit_project_role: {str(e)}")
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+def _delete_project_role(request, id):
+    try:
+        project = Project.objects.filter(id=id).first()
+        if project is None:
+            return JsonResponse({'status': 'error', 'message': 'Project not found'}, status=404)
+        user_role = UserProjectRole.objects.get_user_role_in_project(project, request.user)
+        if not UserProjectRole.objects.get_role_permissions(user_role, project)['can_change_project_settings']:
+            return JsonResponse({'status': 'Unauthorized access'}, status=403)
+
+        data = json.loads(request.body)
+        role_id = data.get('role_id')
+        if not role_id:
+            return JsonResponse({'status': 'bad request', 'message': 'role_id is required'}, status=400)
+
+        role = ProjectRole.objects.filter(id=role_id, project=project).first()
+        if role is None:
+            return JsonResponse({'status': 'error', 'message': 'Role not found'}, status=404)
+
+        if role.name in PROTECTED_ROLE_NAMES:
+            return JsonResponse({'status': 'error', 'message': 'The owner and viewer roles can never be deleted'}, status=403)
+
+        viewer_role = ProjectRole.objects.get(name='viewer', project=project)
+
+        with transaction.atomic():
+            affected_user_ids = list(
+                UserProjectRole.objects.filter(project=project, role=role).values_list('user_id', flat=True)
+            )
+            UserProjectRole.objects.filter(project=project, role=role).update(role=viewer_role)
+            role.delete()
+
+        cache_manager.delete(ProjectCacheKey.ROLE_PERMISSIONS.format(project_id=project.id, role_name=role.name))
+        for user_id in affected_user_ids:
+            cache_manager.delete(ProjectCacheKey.USER_ROLE.format(project_id=project.id, user_id=user_id))
+
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Role successfully deleted',
+            'demoted_to_viewer': affected_user_ids
+        }, status=200)
+    except Exception as e:
+        print(f"Eroare in _delete_project_role: {str(e)}")
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
